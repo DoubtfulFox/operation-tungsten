@@ -255,13 +255,20 @@ export class Player {
       this.stepTimer = 0.12;
     }
 
-    // --- camera (with a Perfect Dark strafe lean) ---
+    // --- camera: GoldenEye/Perfect Dark figure-8 head bob + strafe lean ---
     this.lean = THREE.MathUtils.damp(this.lean, -mx * 0.016 * (spd / speed), 7, dt);
     const cam = world.camera;
-    cam.position.set(this.pos.x, this.eyeY + Math.sin(this.bobPhase) * 0.035 * this.bobAmount, this.pos.z);
+    const amt = this.bobAmount;
+    const bobV = Math.sin(this.bobPhase) * 0.045 * amt; // vertical dip every step
+    const bobH = Math.cos(this.bobPhase * 0.5) * 0.03 * amt; // slower side-to-side sway (the "8")
+    const bobRoll = Math.sin(this.bobPhase * 0.5) * 0.013 * amt; // head tilts into the sway
+    // offset along the camera's right vector so the sway reads correctly at any heading
+    const rx = Math.cos(this.yaw);
+    const rz = -Math.sin(this.yaw);
+    cam.position.set(this.pos.x + rx * bobH, this.eyeY + bobV, this.pos.z + rz * bobH);
     cam.rotation.y = this.yaw;
     cam.rotation.x = this.pitch;
-    cam.rotation.z = this.lean;
+    cam.rotation.z = this.lean + bobRoll;
   }
 
   damage(amount: number, world: World): void {

@@ -104,13 +104,16 @@ export class ViewModel {
 
     const pos = HIP.clone().lerp(ADS, this.adsLerp);
     const bob = player.bobAmount * (1 - this.adsLerp * 0.8);
-    pos.x += Math.sin(player.bobPhase) * 0.012 * bob + this.swayX;
-    pos.y += Math.abs(Math.cos(player.bobPhase)) * -0.012 * bob + this.swayY;
+    // figure-8 weapon bob: side-to-side at the sway rate, dip on each step
+    pos.x += Math.sin(player.bobPhase * 0.5) * 0.018 * bob + this.swayX;
+    pos.y += Math.abs(Math.cos(player.bobPhase)) * -0.014 * bob + this.swayY;
     pos.y -= (1 - this.raiseT) * 0.35;
     pos.z += this.recoil * 0.07;
 
     this.group.position.copy(pos);
-    this.group.rotation.set(this.recoil * 0.12 - (1 - this.raiseT) * 0.5, 0.04 + this.swayX * 1.4, 0);
+    // the gun lags the bob with a gentle roll, on top of recoil + raise
+    const bobRoll = Math.sin(player.bobPhase * 0.5) * 0.03 * bob;
+    this.group.rotation.set(this.recoil * 0.12 - (1 - this.raiseT) * 0.5, 0.04 + this.swayX * 1.4, bobRoll);
 
     this.flashT -= dt;
     this.flash.visible = this.flashT > 0;

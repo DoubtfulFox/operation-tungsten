@@ -129,10 +129,14 @@ export class Guard {
     this.gunId = gunIdFor(def.kind, def.gun);
     this.rig = new CharacterRig(def.kind, this.gunId);
     this.pos.set(def.cx * CELL + CELL / 2, HE.y + 0.02, def.cz * CELL + CELL / 2);
-    this.yaw = this.targetYaw = this.homeYaw = def.facing ?? Math.random() * Math.PI * 2;
-    this.homePos = this.pos.clone();
     this.route = def.route.map(([cx, cz]) => NavGrid.center(cx, cz, this.pos.y));
     this.state = this.route.length > 0 ? "patrol" : "post";
+    // never spawn wedged inside a prop or wall
+    this.settleSpawn(world);
+    this.homePos = this.pos.clone();
+    this.yaw = this.targetYaw = this.homeYaw = def.facing ?? Math.random() * Math.PI * 2;
+    // a posted guard staring at a wall is blind to the room — face the open space
+    if (this.state === "post") this.reorientToOpenSpace(world, def.facing === undefined);
     world.scene.add(this.rig.root);
 
     this.unsubNoise = world.events.on("noise", (n) => {
@@ -147,6 +151,48 @@ export class Guard {
 
   center(): THREE.Vector3 {
     return new THREE.Vector3(this.pos.x, 0.95, this.pos.z);
+  }
+
+  /** If embedded in geometry, hop to the nearest free floor cell. */
+  private settleSpawn(world: World): void {
+    if (!world.physics.overlaps(this.pos, HE)) return;
+    const grid = world.level.grid;
+    for (let r = 1; r <= 3; r++) {
+      for (let dx = -r; dx <= r; dx++) {
+        for (let dz = -r; dz <= r; dz++) {
+          if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue; // ring only
+          const p = new THREE.Vector3(this.pos.x + dx * CELL, this.pos.y, this.pos.z + dz * CELL);
+          const cx = Math.floor(p.x / CELL);
+          const cz = Math.floor(p.z / CELL);
+          if (grid.isFloor(cx, cz) && !world.physics.overlaps(p, HE)) {
+            this.pos.copy(p);
+            return;
+          }
+        }
+      }
+    }
+  }
+
+  /** Turn a posted guard toward the most open direction so they watch the room, not a wall. */
+  private reorientToOpenSpace(world: World, force: boolean): void {
+    const eye = this.eye();
+    if (!force) {
+      const homeDir = new THREE.Vector3(-Math.sin(this.homeYaw), 0, -Math.cos(this.homeYaw));
+      if (!world.physics.raycast(eye, homeDir, 1.5)) return; // current facing is already open
+    }
+    let bestYaw = this.homeYaw;
+    let bestClear = -1;
+    for (let i = 0; i < 12; i++) {
+      const yaw = (i / 12) * Math.PI * 2;
+      const dir = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+      const hit = world.physics.raycast(eye, dir, 8);
+      const clear = hit ? hit.t : 8;
+      if (clear > bestClear) {
+        bestClear = clear;
+        bestYaw = yaw;
+      }
+    }
+    this.homeYaw = this.yaw = this.targetYaw = bestYaw;
   }
 
   eye(): THREE.Vector3 {
@@ -199,7 +245,10 @@ export class Guard {
     if (player.crouched) maxR *= 0.7;
     if (dist > maxR) return false;
     const dirN = to.clone().divideScalar(dist);
-    if (!(this.alertLevel >= 2 && dist < 8)) {
+    // an upright, moving player right next to them is noticed regardless of facing
+    // (crouching or sneaking past stays undetected — stealth takedowns still work)
+    const pointBlank = dist < 3 && !player.crouched && player.moving;
+    if (!pointBlank && !(this.alertLevel >= 2 && dist < 8)) {
       const flat = new THREE.Vector3(dirN.x, 0, dirN.z).normalize();
       if (this.facingDir().dot(flat) < 0.42) return false;
     }
@@ -233,7 +282,16 @@ export class Guard {
         }
       }
     }
+    this.enterCombat(world);
+  }
+
+  /** Commit to a fight and immediately face the player (no slow wall-pivot). */
+  private enterCombat(world: World): void {
     this.state = "combat";
+    this.alarmPanel = null;
+    this.alarmCell = null;
+    const to = world.player.pos.clone().sub(this.pos);
+    this.targetYaw = Math.atan2(-to.x, -to.z);
   }
 
   // ---- movement ---------------------------------------------------------
@@ -593,6 +651,11 @@ export class Guard {
       }
     } else {
       this.loseSightT += dt;
+      // keep the gun trained on where they were last seen, ready to fire on a re-peek
+      if (this.lastKnown) {
+        const a = this.lastKnown.clone().sub(this.pos);
+        this.targetYaw = Math.atan2(-a.x, -a.z);
+      }
       // flush a camper: known position, no line of sight, clear arc
       if (
         this.kind === "guard" &&
@@ -610,7 +673,8 @@ export class Guard {
         this.poseLockT = 0.8;
         return;
       }
-      if (this.loseSightT > 1.3 && this.lastKnown) {
+      // chase down the last-known position quickly instead of standing exposed
+      if (this.loseSightT > 1.0 && this.lastKnown) {
         this.state = "chase";
         this.setPath(world, this.lastKnown);
       }
@@ -697,8 +761,8 @@ export class Guard {
         break;
       }
       case "post": {
-        // drift back to facing direction, occasional glances
-        this.targetYaw = this.homeYaw + Math.sin(world.time * 0.3 + this.homePos.x) * 0.5;
+        // sweep a wide arc so the whole room stays watched, not a fixed stare
+        this.targetYaw = this.homeYaw + Math.sin(world.time * 0.5 + this.homePos.x) * 0.85;
         if (this.path) {
           // wandering (idle life) or returning home
           moving = !this.followPath(dt, world, 1.4);
@@ -756,14 +820,20 @@ export class Guard {
         break;
       }
       case "alarm": {
+        // self-preservation: if recently shot or the player is point-blank, stop and fight
+        // (taking a hit also pulls them out via hit(); this catches the close-quarters case)
+        if (this.lastHitT < 1.0 || (sees && this.pos.distanceTo(world.player.pos) < 6)) {
+          this.enterCombat(world);
+          this.combatThink(dt, world, sees);
+          break;
+        }
         if (this.alarmPanel && !this.alarmPanel.alive) {
           // panel got shot out from under them
-          this.alarmPanel = null;
-          this.state = "combat";
+          this.enterCombat(world);
           break;
         }
         if (world.alarm.active) {
-          this.state = "combat";
+          this.enterCombat(world);
           break;
         }
         if (this.path) {
@@ -798,7 +868,7 @@ export class Guard {
     let dy = this.targetYaw - this.yaw;
     while (dy > Math.PI) dy -= Math.PI * 2;
     while (dy < -Math.PI) dy += Math.PI * 2;
-    const turnRate = this.state === "combat" ? 8 : 6;
+    const turnRate = this.state === "combat" ? 10 : 6;
     this.yaw += THREE.MathUtils.clamp(dy, -dt * turnRate, dt * turnRate);
 
     this.integrate(dt, world);
@@ -820,6 +890,7 @@ export class Guard {
       if (this.stuckT > 0.8) {
         this.stuckT = 0;
         this.path = null; // force a fresh path from wherever we got wedged
+        if (world.physics.overlaps(this.pos, HE)) this.settleSpawn(world); // un-embed if truly stuck
       }
     } else {
       this.stuckT = 0;
@@ -900,9 +971,13 @@ export class Guard {
     this.alertLevel = 2;
     if (fromPos) {
       this.lastKnown = world.player.pos.clone();
-      if (this.state !== "combat" && this.state !== "alarm") {
-        if (this.canSeePlayer(world)) this.state = "combat";
-        else {
+      // being shot always overrides an alarm run — turn and fight (or hunt)
+      if (this.state !== "combat") {
+        if (this.canSeePlayer(world)) {
+          this.enterCombat(world);
+        } else {
+          this.alarmPanel = null;
+          this.alarmCell = null;
           this.state = "chase";
           this.setPath(world, this.lastKnown);
         }
