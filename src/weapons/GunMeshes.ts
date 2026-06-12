@@ -250,6 +250,26 @@ export function buildGunMesh(id: string): THREE.Group {
       muzzleAt(g, 0, 0, -0.1);
       break;
     }
+    case "mines": {
+      // the held first-person view: a proximity mine tilted so its face + LED read clearly
+      const m = new THREE.Group();
+      m.add(cyl(0.09, 0.045, mats.darkmetal, 0, 0, 0, false, 12)); // puck body
+      m.add(cyl(0.062, 0.024, mats.gunmetal, 0, 0.034, 0, false, 10)); // raised cap
+      const led = new THREE.Mesh(new THREE.SphereGeometry(0.021, 8, 6), mats.redlight);
+      led.position.set(0, 0.055, 0);
+      m.add(led);
+      // clamp legs ringing the rim
+      for (const a of [0, 1.05, 2.1, 3.14, 4.19, 5.24]) {
+        m.add(box(0.022, 0.02, 0.05, mats.steel, Math.cos(a) * 0.085, 0.004, Math.sin(a) * 0.085));
+      }
+      // tip the face up toward the camera and hold it a touch closer/over
+      m.rotation.set(1.15, 0.35, 0);
+      m.position.set(0.02, 0.01, 0.1);
+      m.scale.setScalar(1.3);
+      g.add(m);
+      muzzleAt(g, 0.02, 0.05, 0.02);
+      break;
+    }
     case "camera": {
       g.add(box(0.18, 0.11, 0.06, mats.darkmetal));
       g.add(box(0.05, 0.105, 0.07, mats.grip, -0.07, 0, 0.002));

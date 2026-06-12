@@ -233,6 +233,7 @@ class Game {
     this.screens.clear();
     this.input.endFrame(); // swallow the click that pressed the button
     this.state = GameState.Playing;
+    this.world.hud.setVisible(true); // debrief hid it; a fresh run must show it again
     this.sfx.ensure();
     this.musicLevel = "stealth";
     this.musicDownT = 0;
