@@ -1,6 +1,6 @@
 import type { World } from "../world";
 import { SLOT_GROUPS, WEAPONS } from "../weapons/WeaponDefs";
-import { controlsHtml } from "./ControlsData";
+import { mountKeyBindings } from "./KeyBindUI";
 import { MODIFIER_DEFS, type Modifiers } from "../core/Modifiers";
 
 import type { Difficulty } from "../level/LevelTypes";
@@ -86,6 +86,10 @@ export class WatchMenu {
 
     if (this.tab === "options") this.bindOptions();
     if (this.tab === "mods") this.bindMods();
+    if (this.tab === "controls") {
+      const host = this.el.querySelector<HTMLElement>(".keybind-host");
+      if (host && this.world) mountKeyBindings(host, this.world.input);
+    }
   }
 
   private bindMods(): void {
@@ -130,7 +134,7 @@ export class WatchMenu {
       return rows.join("");
     }
     if (this.tab === "controls") {
-      return controlsHtml();
+      return `<div class="keybind-host"></div>`;
     }
     if (this.tab === "mods") {
       return (

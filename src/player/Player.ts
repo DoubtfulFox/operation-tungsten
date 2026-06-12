@@ -173,7 +173,7 @@ export class Player {
     }
 
     // --- vault trigger ---
-    if (input.pressed("Space")) {
+    if (input.actionPressed("vault")) {
       const land = this.canVault(world);
       if (land) {
         this.startVault(world, land);
@@ -182,7 +182,7 @@ export class Player {
     }
 
     // --- crouch toggle ---
-    if (input.pressed("KeyC")) {
+    if (input.actionPressed("crouch")) {
       if (this.crouched) {
         // only stand if there's headroom
         const standCenter = new THREE.Vector3(this.pos.x, HE_STAND.y + 0.01, this.pos.z);
@@ -200,11 +200,11 @@ export class Player {
     // --- move ---
     let mx = 0;
     let mz = 0;
-    if (input.down("KeyW")) mz -= 1;
-    if (input.down("KeyS")) mz += 1;
-    if (input.down("KeyA")) mx -= 1;
-    if (input.down("KeyD")) mx += 1;
-    this.sneaking = input.down("ShiftLeft") || input.down("ShiftRight");
+    if (input.actionDown("forward")) mz -= 1;
+    if (input.actionDown("back")) mz += 1;
+    if (input.actionDown("left")) mx -= 1;
+    if (input.actionDown("right")) mx += 1;
+    this.sneaking = input.actionDown("sneak");
     let speed = this.crouched ? 1.6 : this.sneaking ? 1.9 : 4.2;
     if (world.mods.turbo) speed *= 1.6;
 

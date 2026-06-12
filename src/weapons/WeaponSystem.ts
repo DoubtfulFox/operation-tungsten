@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import type { World } from "../world";
 import type { AmmoType, WeaponDef } from "../types";
+import type { GameAction } from "../core/Bindings";
 import { SLOT_GROUPS, SLOT_ORDER, WEAPONS } from "./WeaponDefs";
 import { ViewModel } from "./ViewModel";
 import { buildGunMesh } from "./GunMeshes";
@@ -121,7 +122,7 @@ export class WeaponSystem {
 
     // --- switching: slot keys select a group; repeat presses cycle it ---
     for (const grp of SLOT_GROUPS) {
-      if (!input.pressed("Digit" + grp.key)) continue;
+      if (!input.actionPressed(("weapon" + grp.key) as GameAction)) continue;
       const avail = grp.members.filter((id) => this.isOwned(id));
       if (avail.length === 0) continue;
       const activeId = this.pendingId ?? this.currentId;
@@ -161,7 +162,7 @@ export class WeaponSystem {
     }
 
     // --- aiming + zoom ---
-    this.aiming = input.buttonDown(2) && (def.kind === "gun" || def.kind === "camera");
+    this.aiming = input.actionDown("aim") && (def.kind === "gun" || def.kind === "camera");
     const targetFov = this.aiming && def.zoomFov > 0 ? def.zoomFov : this.baseFov;
     const cam = world.camera;
     if (Math.abs(cam.fov - targetFov) > 0.1) {
@@ -189,7 +190,7 @@ export class WeaponSystem {
     }
 
     // --- reload ---
-    if (input.pressed("KeyR") && !this.reloading && !this.pendingId && def.kind === "gun") {
+    if (input.actionPressed("reload") && !this.reloading && !this.pendingId && def.kind === "gun") {
       this.startReload();
     }
     if (this.reloading) {
@@ -205,12 +206,12 @@ export class WeaponSystem {
 
     // --- fire (suspended mid-vault) ---
     this.cooldown -= dt;
-    const wantFire = (def.auto ? input.buttonDown(0) : input.buttonPressed(0)) && !world.player.vaulting;
+    const wantFire = (def.auto ? input.actionDown("fire") : input.actionPressed("fire")) && !world.player.vaulting;
     if (wantFire && this.cooldown <= 0 && !this.reloading && !this.pendingId && world.player.alive) {
       this.fire(world, def);
     }
-    // mines: RMB detonates
-    if (def.kind === "mine" && input.buttonPressed(2) && !world.player.vaulting) {
+    // mines: the aim control detonates
+    if (def.kind === "mine" && input.actionPressed("aim") && !world.player.vaulting) {
       this.detonate(world);
     }
 

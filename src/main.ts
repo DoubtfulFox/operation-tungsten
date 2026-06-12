@@ -142,6 +142,7 @@ class Game {
         locked: !save.unlocked.includes(def.id),
         best: save.best[def.id]
       })),
+      this.input,
       (id) => {
         this.sfx.ensure();
         this.currentLevelId = id;
@@ -308,9 +309,9 @@ class Game {
       // slow motion scales game time only — look stays full-speed
       this.updatePlaying(this.mods.slowMotion ? dt * 0.55 : dt);
     } else if (this.state === GameState.Watch) {
-      // resume when pointer lock comes back (or on Tab/Esc press)
+      // resume when pointer lock comes back (or on the pause/Esc key)
       if (this.input.locked) this.closeWatch();
-      else if (this.input.pressed("Tab") || this.input.pressed("Escape")) this.input.requestLock();
+      else if (this.input.actionPressed("pause") || this.input.pressed("Escape")) this.input.requestLock();
     }
 
     if (this.world) {
@@ -326,7 +327,7 @@ class Game {
     const w = this.world!;
     w.time += dt;
 
-    if (this.input.pressed("Tab")) {
+    if (this.input.actionPressed("pause")) {
       if (this.input.locked) this.input.exitLock();
       else this.openWatch();
       return;
@@ -550,7 +551,7 @@ class Game {
     if (!prompt && w.player.canVault(w)) prompt = "SPACE — VAULT";
 
     w.hud.setPrompt(prompt);
-    if (action && this.input.pressed("KeyF")) action();
+    if (action && this.input.actionPressed("interact")) action();
   }
 }
 

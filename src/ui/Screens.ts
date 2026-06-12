@@ -2,7 +2,8 @@ import type { MissionSystem } from "../mission/MissionSystem";
 import type { Difficulty, LevelDef } from "../level/LevelTypes";
 import type { BestEntry } from "../core/SaveData";
 import { DIFFICULTIES } from "../core/Difficulty";
-import { controlsHtml } from "./ControlsData";
+import { mountKeyBindings } from "./KeyBindUI";
+import type { Input } from "../core/Input";
 
 export interface MissionEntry {
   def: LevelDef;
@@ -28,7 +29,7 @@ export class Screens {
     return el;
   }
 
-  showMenu(missions: MissionEntry[], onStart: (id: string) => void): void {
+  showMenu(missions: MissionEntry[], input: Input, onStart: (id: string) => void): void {
     const rows = missions
       .map((m, i) => {
         const best = m.best ? `<span class="mission-best">${m.best.rating}</span>` : "";
@@ -45,7 +46,7 @@ export class Screens {
       <div class="controls-box hidden"></div>
     `);
     const controlsBox = el.querySelector<HTMLDivElement>(".controls-box")!;
-    controlsBox.innerHTML = controlsHtml();
+    mountKeyBindings(controlsBox, input);
     for (const btn of el.querySelectorAll<HTMLButtonElement>("[data-level]")) {
       btn.onclick = () => onStart(btn.dataset.level!);
     }
