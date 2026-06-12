@@ -50,7 +50,11 @@ Higher difficulties promote some bonuses into required objectives.
 | Space | Vault over low cover |
 | Shift | Sneak quietly |
 | 1–8 / wheel | Weapon select |
-| Tab / Esc | The watch — objectives, gear, options, abort |
+| Tab / Esc | The watch — objectives, gear, controls, options, abort |
+
+Every control is **fully rebindable** to any key or mouse button — open
+the **CONTROLS** panel on the main menu or the watch's CONTROLS tab,
+click a binding, and press the input you want. Bindings persist locally.
 
 ## Gunplay
 
