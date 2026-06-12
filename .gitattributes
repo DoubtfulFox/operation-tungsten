@@ -1,0 +1,8 @@
+# Normalize line endings to LF in the repo (CI builds on Linux)
+* text=auto eol=lf
+
+# Treat binary assets as binary (no EOL conversion)
+*.glb binary
+*.ogg binary
+*.png binary
+*.jpg binary
