@@ -14,6 +14,7 @@ import type { LevelDef } from "../LevelTypes";
 export const M1: LevelDef = {
   id: "m1",
   name: "ARKHANGELSK-7 FACILITY",
+  equipment: ["lockpick"],
   briefing: {
     re: "ARKHANGELSK-7 CHEMICAL FACILITY",
     paragraphs: [
@@ -62,10 +63,10 @@ export const M1: LevelDef = {
     "########..###############L#############..###", // 29
     "########.................................###", // 30
     "########.................................###", // 31
-    "##################################DD########", // 32
-    "############################...............#", // 33
-    "############################...............#", // 34
-    "############################...............#", // 35
+    "########################.#########DD########", // 32
+    "#######################....#...............#", // 33
+    "#######################....#...............#", // 34
+    "#######################....#...............#", // 35
     "############################...............#", // 36
     "############################################" // 37
   ],
@@ -82,6 +83,7 @@ export const M1: LevelDef = {
     { name: "armory", x0: 34, z0: 17, x1: 38, z1: 21, floorTex: "floorMetal", wallTex: "metalWall", light: { color: 0xffe2c0, intensity: 6 } },
     { name: "mess", x0: 34, z0: 24, x1: 38, z1: 28, floorTex: "floorTile", wallTex: "concreteWall", light: { color: 0xffeccc, intensity: 6 } },
     { name: "dock", x0: 28, z0: 32, x1: 43, z1: 36, floorTex: "floorConcrete", wallTex: "metalWall", light: { color: 0xd0e0ff, intensity: 8 } },
+    { name: "reserve", x0: 23, z0: 33, x1: 26, z1: 35, floorTex: "floorConcrete", wallTex: "brickWall", light: { color: 0xffd2c0, intensity: 5 } },
     // corridors (must be last: acts as the fallback for ring + center)
     { name: "corridor", x0: 0, z0: 0, x1: 43, z1: 37, floorTex: "floorConcrete", wallTex: "concreteWall" }
   ],
@@ -110,7 +112,8 @@ export const M1: LevelDef = {
     { x: 36, z: 19, c: 0xffe2c0, i: 5 }, // armory
     { x: 36, z: 26, c: 0xffeccc, i: 5 }, // mess
     { x: 31, z: 34.5, c: 0xd0e0ff, i: 7 }, // dock W
-    { x: 39.5, z: 34.5, c: 0xd0e0ff, i: 7 } // dock E
+    { x: 39.5, z: 34.5, c: 0xd0e0ff, i: 7 }, // dock E
+    { x: 24.5, z: 34, c: 0xffd2c0, i: 5 } // dock reserve room (lit so the squad shows when the gate blows)
   ],
 
   glowFixtures: [
@@ -164,7 +167,8 @@ export const M1: LevelDef = {
     { text: "АРСЕНАЛ", cx: 38, cz: 19, side: "E" },
     { text: "СТОЛОВАЯ", cx: 38, cz: 26, side: "E" },
     { text: "КАРЦЕР", cx: 10, cz: 26, side: "W" },
-    { text: "ПОГРУЗКА", cx: 34.5, cz: 32, side: "N" }
+    { text: "ПОГРУЗКА", cx: 34.5, cz: 32, side: "N" },
+    { text: "РЕЗЕРВ", cx: 23, cz: 32, side: "N" }
   ],
 
   props: [
@@ -218,7 +222,8 @@ export const M1: LevelDef = {
     { type: "table", cx: 37, cz: 27 },
     { type: "crate", cx: 34.6, cz: 27.8 },
     // dock
-    { type: "truck", cx: 31.5, cz: 35, rot: 1 },
+    { type: "truck", id: "exfil_truck", cx: 31.5, cz: 34, rot: 0 },
+    { type: "garage", cx: 31, cz: 36.5, rot: 0 },
     { type: "crate", cx: 29, cz: 33.6 },
     { type: "crate", cx: 30.2, cz: 33.5 },
     { type: "crate", cx: 29.6, cz: 34.7 },
@@ -249,9 +254,9 @@ export const M1: LevelDef = {
     { type: "armor", cx: 29, cz: 36.2 },
     { type: "ammo_rifle", cx: 41, cz: 33.5 },
     { type: "medkit", cx: 41, cz: 36.2 },
-    // the Golden Gun, tucked behind the dock truck — a secret worth finding
-    { type: "weapon_golden", cx: 32, cz: 36.3 },
-    { type: "ammo_golden", cx: 32.7, cz: 36.3 }
+    // the Golden Gun, tucked in the dock's south corner — a secret worth finding
+    { type: "weapon_golden", cx: 35, cz: 36.3 },
+    { type: "ammo_golden", cx: 35.7, cz: 36.3 }
   ],
 
   guards: [
@@ -277,7 +282,13 @@ export const M1: LevelDef = {
     { kind: "guard", cx: 40, cz: 35, route: [], facing: Math.PI / 2, gun: "klobb" },
     { kind: "officer", cx: 38, cz: 33, route: [], facing: -Math.PI / 2, keycard: "officer" },
     // armory surprise
-    { kind: "heavy", cx: 36, cz: 19, route: [], facing: Math.PI / 2 }
+    { kind: "heavy", cx: 36, cz: 19, route: [], facing: Math.PI / 2 },
+    // dock reserve squad — sealed behind the "dock_reserve" blast door until the alarm
+    // trips, then they burst NORTH into the dock-approach corridor (see gates + map carve)
+    { kind: "guard", cx: 24, cz: 33, route: [], facing: 0, gun: "klobb", dormantGroup: "dock_reserve" },
+    { kind: "heavy", cx: 25, cz: 34, route: [], facing: 0, dormantGroup: "dock_reserve" },
+    { kind: "guard", cx: 24, cz: 35, route: [], facing: 0, gun: "klobb", dormantGroup: "dock_reserve" },
+    { kind: "guard", cx: 23, cz: 34, route: [], facing: 0, gun: "klobb", dormantGroup: "dock_reserve" }
   ],
 
   alarmPanels: [
@@ -290,7 +301,7 @@ export const M1: LevelDef = {
 
   playerStart: { cx: 2, cz: 1, yaw: Math.PI },
 
-  extraction: { x0: 40, z0: 33, x1: 42, z1: 36 },
+  extraction: { x0: 28, z0: 32, x1: 43, z1: 36, boardProp: "exfil_truck" },
 
   reinforcementSpawns: [
     [8, 4],
@@ -311,7 +322,12 @@ export const M1: LevelDef = {
     { x: 26, z: 54, len: 2, axis: "x" },
     { x: 28, z: 54, len: 4, axis: "z" }
   ],
-  gates: [{ id: "jail", cx: 12, cz: 27, axis: "z", x: 25, z: 54 }],
+  gates: [
+    { id: "jail", cx: 12, cz: 27, axis: "z", x: 25, z: 54, lock: "pick" },
+    // reserve-squad blast door: sealed until the alarm, then blows open NORTH into the
+    // dock-approach corridor (cell 24,32 — the open hall the player walks to reach exfil)
+    { id: "dock_reserve", cx: 24, cz: 32, axis: "z", x: 49, z: 65, openOnAlarm: true }
+  ],
   navBlocks: [
     [11, 27],
     [13, 27],
@@ -329,9 +345,11 @@ export const M1: LevelDef = {
       hideCell: [16, 25],
       gateId: "jail",
       freePrompt: "F — FREE DR. VOLKOV",
-      freeToasts: ['DR. VOLKOV: "Destroy what they made me build. Take my keycard!"', "LAB KEYCARD ACQUIRED"],
+      freeToasts: ['DR. VOLKOV: "Get me out of here — I\'ll stay on you. Take my keycard!"', "LAB KEYCARD ACQUIRED"],
       grantsKeycard: "lab",
-      killFailReason: "Dr. Volkov was killed before you reached him."
+      escort: true,
+      killFailReason: "Dr. Volkov was killed before you reached him.",
+      escortFailReason: "Dr. Volkov was killed during the escape."
     }
   ],
 
@@ -344,8 +362,8 @@ export const M1: LevelDef = {
     { id: "o_tanks", label: "Destroy both nerve gas tanks", trigger: { kind: "destroyAll", ids: ["tank_a", "tank_b"] } },
     { id: "o_extract", label: "Escape via the loading dock", trigger: { kind: "extract" } },
     { id: "s_alarm", label: "Complete the mission without an alarm", bonus: true, trigger: { kind: "noAlarm" } },
-    { id: "s_railgun", label: "Recover the ZMEY prototype railgun", bonus: true, trigger: { kind: "pickup", pickupType: "weapon_railgun" } },
+    { id: "s_railgun", label: "Recover the GAUSS prototype railgun", bonus: true, trigger: { kind: "pickup", pickupType: "weapon_railgun" } },
     { id: "s_mainframe", label: "Destroy the security mainframe", bonus: true, requiredAt: "007", trigger: { kind: "destroyAll", ids: ["mainframe"] } },
-    { id: "s_volkov", label: "Dr. Volkov survives", bonus: true, minDifficulty: "super", trigger: { kind: "npcSurvives", npcId: "volkov" } }
+    { id: "s_volkov", label: "Escort Dr. Volkov to extraction", minDifficulty: "super", requiredAt: "super", trigger: { kind: "npcSurvives", npcId: "volkov" } }
   ]
 };

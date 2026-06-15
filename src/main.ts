@@ -4,6 +4,7 @@ import { RetroRenderer } from "./core/RetroRenderer";
 import { Input } from "./core/Input";
 import { Sfx } from "./audio/Sfx";
 import { Music, type MusicIntensity } from "./audio/Music";
+import { BriefingVoice } from "./audio/BriefingVoice";
 import { World } from "./world";
 import { buildLevel } from "./level/LevelBuilder";
 import { Player } from "./player/Player";
@@ -12,6 +13,8 @@ import { Effects } from "./fx/Effects";
 import { Projectiles } from "./combat/Projectiles";
 import { Guard } from "./ai/Guard";
 import { loadCharacterAssets } from "./ai/CharacterRig";
+import { loadWeaponAssets } from "./weapons/WeaponModels";
+import { loadPropAssets } from "./level/PropModels";
 import { AlarmSystem } from "./ai/AlarmSystem";
 import { Scientist } from "./npc/Scientist";
 import { MissionSystem } from "./mission/MissionSystem";
@@ -25,6 +28,7 @@ import { loadCampaign, recordWin } from "./core/SaveData";
 import { difficultyById } from "./core/Difficulty";
 import type { Difficulty } from "./level/LevelTypes";
 import { NavGrid } from "./ai/Nav";
+import { cw } from "./level/Grid";
 import type { Door } from "./level/Door";
 
 const SETTINGS_KEY = "tungsten-settings";
@@ -37,7 +41,8 @@ class Game {
   private music = new Music(this.sfx);
   private musicLevel: MusicIntensity = "stealth";
   private musicDownT = 0;
-  private screens = new Screens();
+  private screens = new Screens(this.sfx);
+  private briefingVoice = new BriefingVoice();
   private watch: WatchMenu;
   private world: World | null = null;
   private settings: Settings;
@@ -52,7 +57,7 @@ class Game {
     this.renderer = new RetroRenderer(canvas);
     this.input = new Input(canvas);
 
-    this.settings = { sens: 1.0, master: 0.8, music: 0.5, retro: true, aimAssist: true, difficulty: "agent" };
+    this.settings = { sens: 1.0, master: 0.8, music: 0.5, retro: true, aimAssist: true, autoSwitchOnPickup: true, voice: true, difficulty: "agent" };
     try {
       const saved = localStorage.getItem(SETTINGS_KEY);
       if (saved) Object.assign(this.settings, JSON.parse(saved));
@@ -60,6 +65,8 @@ class Game {
       // first run
     }
     if (!["agent", "super", "007"].includes(this.settings.difficulty)) this.settings.difficulty = "agent";
+    // migrate the old off/male/female voice setting to a simple on/off
+    this.settings.voice = (this.settings.voice as unknown) !== false && (this.settings.voice as unknown) !== "off";
     this.renderer.enabled = this.settings.retro;
 
     this.watch = new WatchMenu(this.settings, {
@@ -104,6 +111,7 @@ class Game {
     if (this.world) {
       this.world.player.sensitivity = 0.0022 * this.settings.sens;
       this.world.weapons.aimAssist = this.settings.aimAssist;
+      this.world.weapons.autoSwitchOnPickup = this.settings.autoSwitchOnPickup;
     }
     try {
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(this.settings));
@@ -146,7 +154,7 @@ class Game {
       (id) => {
         this.sfx.ensure();
         this.currentLevelId = id;
-        void this.startMission();
+        void this.startMission(id === "wtest"); // test range: skip briefing (no difficulty to pick)
       }
     );
   }
@@ -155,7 +163,7 @@ class Game {
     this.disposeWorld();
     this.endTimer = -1;
     this.sfx.alarmStop();
-    await loadCharacterAssets();
+    await Promise.all([loadCharacterAssets(), loadWeaponAssets(), loadPropAssets()]);
     const def = levelById(this.currentLevelId);
 
     const world = new World(this.input, this.sfx);
@@ -188,6 +196,8 @@ class Game {
     world.mission = new MissionSystem(world, def.objectives, this.settings.difficulty);
     world.weapons = new WeaponSystem(world);
     world.weapons.aimAssist = this.settings.aimAssist;
+    world.weapons.autoSwitchOnPickup = this.settings.autoSwitchOnPickup;
+    if (def.equipment) for (const id of def.equipment) world.weapons.owned.add(id);
     world.projectiles = new Projectiles();
     world.npcs = (def.npcs ?? []).map((nd) => new Scientist(world, nd));
     world.guards = def.guards.map((gd) => new Guard(world, gd));
@@ -206,6 +216,7 @@ class Game {
       this.state = GameState.Briefing;
       this.music.start("menu");
       this.showBriefing();
+      this.briefingVoice.speakBriefing(def, this.settings.voice);
     }
   }
 
@@ -231,7 +242,9 @@ class Game {
   private beginPlay(): void {
     if (!this.world) return;
     this.screens.clear();
-    this.input.endFrame(); // swallow the click that pressed the button
+    this.briefingVoice.cancel(); // stop any briefing narration when the mission starts
+    this.input.endFrame(); // swallow the click-edge that pressed the button
+    this.input.clearHeld("fire"); // ...and its still-held state, so frame 1 doesn't fire a phantom (guard-alerting) shot
     this.state = GameState.Playing;
     this.world.hud.setVisible(true); // debrief hid it; a fresh run must show it again
     this.sfx.ensure();
@@ -457,7 +470,7 @@ class Game {
         w.hud.toast(ws.give("shotgun", 5) ? "KS-23 SHOTGUN ACQUIRED" : "SHOTGUN SHELLS +5");
         break;
       case "weapon_railgun":
-        w.hud.toast(ws.give("railgun", 3) ? "ZMEY PROTOTYPE RAILGUN ACQUIRED" : "RAIL SLUGS +3");
+        w.hud.toast(ws.give("railgun", 3) ? "GAUSS PROTOTYPE RAILGUN ACQUIRED" : "RAIL SLUGS +3");
         break;
       case "weapon_klobb": {
         const second = ws.owned.has("klobb");
@@ -516,6 +529,16 @@ class Game {
       break;
     }
 
+    // board-the-truck exfil — F at the extraction truck once objectives are done
+    if (!prompt) {
+      const ext = w.level.def.extraction;
+      const tp = ext.boardProp ? w.level.def.props.find((p) => p.id === ext.boardProp) : undefined;
+      if (tp && Math.hypot(w.player.pos.x - cw(tp.cx), w.player.pos.z - cw(tp.cz)) < 3.8) {
+        prompt = w.mission.allRequiredDone() ? "F — BOARD TRUCK" : "EXFIL — OBJECTIVES INCOMPLETE";
+        action = () => w.mission.boardExtract();
+      }
+    }
+
     if (!prompt) {
       const hit = w.physics.raycast(w.player.eyePos(), w.player.forward(), 2.9);
       if (hit && hit.collider.kind === "door") {
@@ -524,24 +547,46 @@ class Game {
           prompt = "F — KICK GRATE OPEN";
           action = () => door.kick();
         } else if (door.kind === "gate") {
-          prompt = "F — PICK LOCK";
-          action = () => door.requestOpen();
+          if (door.lock === "sealed") {
+            prompt = "SEALED — BLAST DOOR";
+            action = () => w.hud.toast("Sealed blast door — only an alarm opens this.");
+          } else if (door.lock === "pick" && !w.weapons.owned.has("lockpick")) {
+            prompt = "LOCKED — NEEDS LOCKPICK";
+            action = () => w.hud.toast("This cell is padlocked — you need a lockpick.");
+          } else {
+            prompt = "F — PICK LOCK";
+            action = () => {
+              door.requestOpen();
+              if (door.lock === "pick") {
+                w.sfx.keycard();
+                w.hud.toast("Lock picked.");
+              }
+            };
+          }
         } else if (door.isClosed()) {
           if (door.lock === "none") {
             prompt = "F — OPEN DOOR";
             action = () => door.tryOpen(w.player.cards);
-          } else if (w.player.cards.has(door.lock)) {
+          } else if (door.lock !== "pick" && door.lock !== "sealed" && w.player.cards.has(door.lock)) {
             prompt = `F — USE ${door.lock.toUpperCase()} KEYCARD`;
             action = () => {
               if (door.tryOpen(w.player.cards) === "unlocked") {
                 w.hud.toast(`Used ${door.lock.toUpperCase()} keycard.`);
               }
             };
+          } else if (w.weapons.owned.has("lockpick")) {
+            prompt = "F — PICK LOCK";
+            action = () => {
+              door.requestOpen();
+              w.sfx.keycard();
+              w.hud.toast("Lock picked.");
+            };
           } else {
-            prompt = `LOCKED — NEEDS ${door.lock.toUpperCase()} KEYCARD`;
+            const need = door.lock === "pick" ? "LOCKPICK" : `${door.lock.toUpperCase()} KEYCARD`;
+            prompt = `LOCKED — NEEDS ${need}`;
             action = () => {
               door.tryOpen(w.player.cards);
-              w.hud.toast(`This door needs the ${door.lock.toUpperCase()} keycard.`);
+              w.hud.toast(`This door needs the ${need.toLowerCase()}.`);
             };
           }
         }

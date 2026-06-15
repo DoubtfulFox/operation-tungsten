@@ -6,6 +6,7 @@ import { NavGrid } from "../ai/Nav";
 import { Pickup } from "./Pickups";
 import { Tex } from "../textures/TextureGen";
 import { CELL, GridMap, VENT_H, WALL_H, cw, isFloorChar } from "./Grid";
+import { buildPropModel } from "./PropModels";
 import type { LevelDef } from "./LevelTypes";
 import type { CellChar, PropDef } from "../types";
 
@@ -110,7 +111,8 @@ const pm = {
   pipe: new THREE.MeshLambertMaterial({ color: 0x70777e }),
   stone: new THREE.MeshLambertMaterial({ color: 0x8c8f88 }),
   stoneDark: new THREE.MeshLambertMaterial({ color: 0x5b5e58 }),
-  bronze: new THREE.MeshLambertMaterial({ color: 0x6e5a36 })
+  bronze: new THREE.MeshLambertMaterial({ color: 0x6e5a36 }),
+  targetRed: new THREE.MeshLambertMaterial({ color: 0xc0392b })
 };
 
 function bx(w: number, h: number, d: number, mat: THREE.Material, x = 0, y = 0, z = 0): THREE.Mesh {
@@ -140,7 +142,31 @@ function buildProp(def: PropDef): BuiltProp {
       const b = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 1.05, 10), new THREE.MeshLambertMaterial({ map: Tex.barrel() }));
       b.position.y = 0.53;
       g.add(b);
-      return { group: g, collider: { hw: 0.45, hh: 0.53, hd: 0.45 } };
+      return {
+        group: g,
+        collider: { hw: 0.45, hh: 0.53, hd: 0.45 },
+        // explosive fuel drum: shootable (not bullet-immune), detonated in Damage.damageDestructible
+        destructible: { kind: "barrel", hp: 18, radius: 0.5, bulletImmune: false }
+      };
+    }
+    case "target": {
+      // firing-range standee: a tall board with a painted bullseye (face on +Z)
+      g.add(bx(0.5, 0.09, 0.34, pm.darkMetal, 0, 0.045, 0)); // base
+      g.add(bx(0.62, 1.5, 0.05, pm.white, 0, 0.85, 0)); // board
+      g.add(bx(0.66, 0.06, 0.07, pm.darkMetal, 0, 1.585, 0)); // top trim
+      g.add(bx(0.66, 0.06, 0.07, pm.darkMetal, 0, 0.115, 0)); // bottom trim
+      const disc = (r: number, mat: THREE.Material, z: number): THREE.Mesh => {
+        const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 0.02, 20), mat);
+        m.rotation.x = Math.PI / 2;
+        m.position.set(0, 1.12, z);
+        return m;
+      };
+      g.add(disc(0.26, pm.targetRed, 0.03));
+      g.add(disc(0.2, pm.white, 0.034));
+      g.add(disc(0.14, pm.targetRed, 0.038));
+      g.add(disc(0.08, pm.white, 0.042));
+      g.add(disc(0.038, pm.targetRed, 0.046));
+      return { group: g, collider: { hw: 0.33, hh: 0.8, hd: 0.06 } };
     }
     case "table": {
       g.add(bx(1.8, 0.07, 1.0, pm.wood, 0, 0.82));
@@ -315,6 +341,9 @@ function buildProp(def: PropDef): BuiltProp {
       return { group: g, collider: { hw: 0.9, hh: 0.75, hd: 0.55 } };
     }
     case "truck": {
+      // CC0 Kenney truck (olive military recolor); falls back to the box mesh if the GLB is absent
+      const model = buildPropModel("truck");
+      if (model) return model;
       g.add(bx(1.9, 1.7, 1.7, pm.truckBody, 0, 1.25, -2.4));
       g.add(bx(1.6, 0.6, 0.1, pm.glass, 0, 1.7, -1.55));
       g.add(bx(2.1, 2.0, 4.4, pm.olive, 0, 1.6, 0.6));
@@ -330,6 +359,19 @@ function buildProp(def: PropDef): BuiltProp {
         g.add(wheel);
       }
       return { group: g, collider: { hw: 1.15, hh: 1.3, hd: 3.4 } };
+    }
+    case "garage": {
+      // roll-up dock door (corrugated slats + frame), flush on a wall; decorative (no collider)
+      const gw = 4.4;
+      const gh = 3.0;
+      const n = 8;
+      for (let i = 0; i < n; i++) {
+        g.add(bx(gw, gh / n - 0.05, 0.16, i % 2 ? pm.metal : pm.darkMetal, 0, 0.1 + (i + 0.5) * (gh / n)));
+      }
+      g.add(bx(0.22, gh + 0.4, 0.34, pm.darkMetal, -(gw / 2 + 0.1), (gh + 0.4) / 2));
+      g.add(bx(0.22, gh + 0.4, 0.34, pm.darkMetal, gw / 2 + 0.1, (gh + 0.4) / 2));
+      g.add(bx(gw + 0.6, 0.34, 0.34, pm.darkMetal, 0, gh + 0.25));
+      return { group: g };
     }
     case "statue": {
       // stone plinth + bronze figure — tall enough to break line of sight (full cover)
@@ -652,9 +694,9 @@ export function buildLevel(def: LevelDef, physics: Physics, sfx: Sfx): BuiltLeve
   for (let cz = 0; cz < grid.h; cz++) {
     for (let cx = 0; cx < grid.w; cx++) {
       const ch = grid.at(cx, cz);
-      if (ch === "D" || ch === "L" || ch === "O" || ch === "G") {
+      if (ch === "D" || ch === "L" || ch === "O" || ch === "P" || ch === "G") {
         const kind = ch === "G" ? "grate" : "slide";
-        const lock = ch === "L" ? "lab" : ch === "O" ? "officer" : "none";
+        const lock = ch === "L" ? "lab" : ch === "O" ? "officer" : ch === "P" ? "pick" : "none";
         // passage axis: open floor on N/S neighbors => travel along z
         const axis = grid.isFloor(cx, cz - 1) && grid.isFloor(cx, cz + 1) ? "z" : "x";
         const door = new Door(physics, sfx, cx, cz, kind, lock, axis);
@@ -692,7 +734,9 @@ export function buildLevel(def: LevelDef, physics: Physics, sfx: Sfx): BuiltLeve
   }
   const gates = new Map<string, Door>();
   for (const gd of def.gates ?? []) {
-    const gate = new Door(physics, sfx, gd.cx, gd.cz, "gate", "none", gd.axis, { x: gd.x, z: gd.z });
+    // an alarm gate is a blast door: sealed shut (and a Nav barrier) until the alarm
+    const lock = gd.openOnAlarm ? "sealed" : (gd.lock ?? "none");
+    const gate = new Door(physics, sfx, gd.cx, gd.cz, "gate", lock, gd.axis, { x: gd.x, z: gd.z });
     doors.push(gate);
     group.add(gate.group);
     nav.registerDoor(gate);
@@ -705,6 +749,7 @@ export function buildLevel(def: LevelDef, physics: Physics, sfx: Sfx): BuiltLeve
 
   // --- props ---
   const destructibles = new Map<string, Destructible>();
+  let autoDestructId = 0; // synthetic ids for inherently-destructible scenery placed without an author id (e.g. barrels)
   const photoTargets = new Map<string, THREE.Vector3>();
   const coverSpots: CoverSpot[] = [];
 
@@ -760,11 +805,14 @@ export function buildLevel(def: LevelDef, physics: Physics, sfx: Sfx): BuiltLeve
       }
     }
 
-    // level data can promote any prop into a mission target
+    // level data can promote any prop into a mission target; props that are
+    // inherently destructible (gas tanks, barrels, ...) register even without an
+    // author id so plain scenery barrels are still shootable/explosive.
     const spec = pd.destructible ?? built.destructible;
-    if (spec && pd.id) {
+    const did = pd.id ?? (built.destructible ? `prop_${pd.type}_${autoDestructId++}` : undefined);
+    if (spec && did) {
       const d: Destructible = {
-        id: pd.id,
+        id: did,
         kind: built.destructible?.kind ?? pd.type,
         hp: spec.hp,
         alive: true,
@@ -774,7 +822,7 @@ export function buildLevel(def: LevelDef, physics: Physics, sfx: Sfx): BuiltLeve
         colliders,
         bulletImmune: spec.bulletImmune
       };
-      destructibles.set(pd.id, d);
+      destructibles.set(did, d);
       for (const c of colliders) c.ref = d;
     }
   }
