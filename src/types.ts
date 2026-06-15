@@ -16,7 +16,7 @@ export interface WeaponDef {
   /** compact label for the hotbar */
   short: string;
   slot: number;
-  kind: "gun" | "thrown" | "mine" | "camera" | "melee";
+  kind: "gun" | "thrown" | "mine" | "camera" | "melee" | "tool";
   damage: number;
   headMult: number;
   pellets: number;
@@ -32,6 +32,8 @@ export interface WeaponDef {
   noiseRadius: number;
   reloadTime: number;
   range: number;
+  /** distance the gun reliably lands a shot — drives the red-reticle threshold; defaults to range */
+  effectiveRange?: number;
   /** fov when aiming (deg); 0 = no zoom */
   zoomFov: number;
   silenced: boolean;
@@ -49,7 +51,7 @@ export interface WeaponDef {
 
 export type KeycardId = "lab" | "officer";
 
-export type CellChar = "#" | "." | "v" | "D" | "L" | "O" | "G" | " ";
+export type CellChar = "#" | "." | "v" | "D" | "L" | "O" | "P" | "G" | " ";
 
 export interface RegionDef {
   name: string;
@@ -82,6 +84,7 @@ export type PropType =
   | "console"
   | "cellbars"
   | "truck"
+  | "garage"
   | "floodlight"
   | "dish"
   | "fence"
@@ -89,7 +92,8 @@ export type PropType =
   | "engine"
   | "generator"
   | "statue"
-  | "monument";
+  | "monument"
+  | "target";
 
 export interface PropDef {
   type: PropType;
@@ -143,6 +147,12 @@ export interface GuardSpawnDef {
   keycard?: KeycardId;
   /** weapon override (defaults to the kind's standard gun) */
   gun?: "klobb" | "sniper" | "golden";
+  /**
+   * Spawn inert as part of a reserve squad: no perception/patrol until released.
+   * The value is the release-group key (matches a gate's id); when an `openOnAlarm`
+   * gate with that id opens on alarm, every guard in the group deploys and hunts.
+   */
+  dormantGroup?: string;
 }
 
 export interface NoiseEvent {
@@ -167,7 +177,10 @@ export interface MissionStats {
   shotsFired: number;
   shotsHit: number;
   kills: number;
+  meleeKills: number;
   alarmsTriggered: number;
+  damageTaken: number;
+  detected: boolean;
   startTime: number;
   endTime: number;
 }

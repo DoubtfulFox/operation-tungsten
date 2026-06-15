@@ -444,7 +444,7 @@ export class Sfx {
     filt.type = "lowpass";
     filt.frequency.value = 1600;
     const gain = this.ctx.createGain();
-    gain.gain.value = 0.07;
+    gain.gain.value = 0.035; // was 0.07 — alarm was painfully loud
     osc.connect(filt);
     filt.connect(gain);
     gain.connect(this.sfxBus);
@@ -453,7 +453,7 @@ export class Sfx {
     const timer = window.setInterval(() => {
       hi = !hi;
       osc.frequency.setValueAtTime(hi ? 560 : 415, this.ctx!.currentTime);
-    }, 380);
+    }, 750); // was 380 — slower two-tone so the beeping isn't grating
     this.alarmNodes = { osc, gain, timer };
   }
 

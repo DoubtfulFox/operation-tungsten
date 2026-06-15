@@ -11,6 +11,9 @@ export interface Settings {
   music: number;
   retro: boolean;
   aimAssist: boolean;
+  autoSwitchOnPickup: boolean;
+  /** play the recorded mission-briefing narration (when a clip exists) */
+  voice: boolean;
   difficulty: Difficulty;
 }
 
@@ -28,7 +31,12 @@ export class WatchMenu {
 
   constructor(
     private settings: Settings,
-    private cbs: { onResume: () => void; onAbort: () => void; onSettings: () => void; onModifiers: () => void }
+    private cbs: {
+      onResume: () => void;
+      onAbort: () => void;
+      onSettings: () => void;
+      onModifiers: () => void;
+    }
   ) {
     this.el = document.createElement("div");
     this.el.className = "watch-wrap hidden";
@@ -105,14 +113,18 @@ export class WatchMenu {
 
   private content(w: World): string {
     if (this.tab === "objectives") {
-      return w.mission.objectives
-        .map((o) => {
-          const cls = o.state === "done" ? "obj-done" : o.state === "failed" ? "obj-failed" : "obj-pending";
-          const mark = o.state === "done" ? "▣" : o.state === "failed" ? "☒" : "□";
-          const label = (o.required ? "" : "BONUS: ") + o.label;
-          return `<div class="${cls}">${mark} ${label}</div>`;
-        })
-        .join("");
+      const objs = w.mission.objectives;
+      const row = (o: (typeof objs)[number]): string => {
+        const cls = o.state === "done" ? "obj-done" : o.state === "failed" ? "obj-failed" : "obj-pending";
+        const mark = o.state === "done" ? "▣" : o.state === "failed" ? "☒" : "□";
+        return `<div class="obj-row ${cls}"><span class="obj-mark">${mark}</span><span class="obj-text">${o.label}</span></div>`;
+      };
+      const out = objs.filter((o) => o.required).map(row);
+      const bonus = objs.filter((o) => !o.required);
+      if (bonus.length) {
+        out.push(`<div class="obj-divider">BONUS OBJECTIVES</div>`, ...bonus.map(row));
+      }
+      return out.join("");
     }
     if (this.tab === "gear") {
       const ws = w.weapons;
@@ -152,7 +164,9 @@ export class WatchMenu {
       <label>MASTER VOLUME <input type="range" id="opt-master" min="0" max="1" step="0.05" value="${s.master}"></label>
       <label>MUSIC VOLUME <input type="range" id="opt-music" min="0" max="1" step="0.05" value="${s.music}"></label>
       <label style="margin-top:14px"><input type="checkbox" id="opt-retro" ${s.retro ? "checked" : ""}> 240p RETRO MODE</label>
-      <label><input type="checkbox" id="opt-assist" ${s.aimAssist ? "checked" : ""}> GOLDENEYE AIM ASSIST</label>`;
+      <label><input type="checkbox" id="opt-assist" ${s.aimAssist ? "checked" : ""}> GOLDENEYE AIM ASSIST</label>
+      <label><input type="checkbox" id="opt-autoswitch" ${s.autoSwitchOnPickup ? "checked" : ""}> AUTO-SWITCH ON PICKUP</label>
+      <label style="margin-top:14px"><input type="checkbox" id="opt-voice" ${s.voice ? "checked" : ""}> BRIEFING NARRATION</label>`;
   }
 
   private bindOptions(): void {
@@ -179,6 +193,16 @@ export class WatchMenu {
     const assist = this.el.querySelector<HTMLInputElement>("#opt-assist")!;
     assist.onchange = () => {
       this.settings.aimAssist = assist.checked;
+      this.cbs.onSettings();
+    };
+    const autoSwitch = this.el.querySelector<HTMLInputElement>("#opt-autoswitch")!;
+    autoSwitch.onchange = () => {
+      this.settings.autoSwitchOnPickup = autoSwitch.checked;
+      this.cbs.onSettings();
+    };
+    const voice = this.el.querySelector<HTMLInputElement>("#opt-voice")!;
+    voice.onchange = () => {
+      this.settings.voice = voice.checked;
       this.cbs.onSettings();
     };
   }

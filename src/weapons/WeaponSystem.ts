@@ -41,8 +41,12 @@ export class WeaponSystem {
   plantedMines: PlantedMine[] = [];
   /** GoldenEye-style hip-fire magnetism (watch options) */
   aimAssist = true;
+  /** auto-equip a weapon the moment it's picked up (watch options) */
+  autoSwitchOnPickup = true;
   /** current effective spread in radians, for the HUD crosshair */
   visualSpread = 0;
+  /** what the crosshair is on: a hostile in range, beyond range, or nothing */
+  aimTarget: "in" | "far" | null = null;
 
   private cooldown = 0;
   private reloadT = 0;
@@ -78,7 +82,7 @@ export class WeaponSystem {
       if (!this.owned.has("klobb_dual")) {
         this.owned.add("klobb_dual");
         this.mags.set("klobb_dual", WEAPONS.klobb_dual.magSize);
-        this.switchTo("klobb_dual");
+        if (this.autoSwitchOnPickup) this.switchTo("klobb_dual");
         return true;
       }
       this.reserve["9mm"] += withAmmo;
@@ -89,7 +93,7 @@ export class WeaponSystem {
     if (isNew) {
       this.owned.add(id);
       if (def.kind === "gun") this.mags.set(id, def.magSize);
-      this.switchTo(id);
+      if (this.autoSwitchOnPickup) this.switchTo(id);
     } else if (def.ammo) {
       this.reserve[def.ammo] += withAmmo;
     }
@@ -215,7 +219,18 @@ export class WeaponSystem {
       this.detonate(world);
     }
 
-    this.viewModel.update(dt, world.player, input.mouseDX, this.aiming);
+    // --- aim-target probe: tint the reticle for in / out-of-range hostiles ---
+    this.aimTarget = null;
+    if (def.kind === "gun") {
+      const eye = world.player.eyePos();
+      const probe = this.hitscan(world, eye, world.player.forward(), Math.max(def.range, 300));
+      if (probe.kind === "guard") {
+        this.aimTarget = eye.distanceTo(probe.point) <= (def.effectiveRange ?? def.range) ? "in" : "far";
+      }
+    }
+
+    const scoped = this.aiming && def.zoomFov > 0 && def.kind === "gun";
+    this.viewModel.update(dt, world.player, input.mouseDX, this.aiming, scoped);
   }
 
   private startReload(): void {
@@ -239,10 +254,13 @@ export class WeaponSystem {
         this.throwGrenade(world);
         break;
       case "mine":
-        this.plantMine(world, def);
+        this.throwMine(world, def);
         break;
       case "camera":
         this.snapPhoto(world, def);
+        break;
+      case "tool":
+        this.pickLock(world, def);
         break;
     }
   }
@@ -274,12 +292,12 @@ export class WeaponSystem {
       const unaware = guard.state === "post" || guard.state === "patrol" || guard.state === "investigate";
       if (unaware && behind) {
         guard.silent = true;
-        guard.hit(9999, world, false, null);
+        guard.hit(9999, world, false, null, true);
         world.sfx.takedown(guard.pos);
         world.hud.hitPulse();
         return;
       }
-      guard.hit(def.damage, world, false, player.eyePos());
+      guard.hit(def.damage, world, false, player.eyePos(), true);
       world.effects.blood(hit.point);
       world.sfx.fleshHit(hit.point);
       world.emitNoise(player.pos, 4);
@@ -297,9 +315,12 @@ export class WeaponSystem {
   /** Spread after stance, movement and sustained-fire bloom. */
   private effectiveSpread(def: WeaponDef, world: World): number {
     if (def.kind !== "gun") return 0;
+    const p = world.player;
     let s = this.aiming ? def.aimSpread : def.spread;
-    if (world.player.moving) s *= 1.45;
-    if (world.player.crouched) s *= 0.65;
+    if (!this.aiming) s *= 1.5; // hip-fire is inherently loose — no lasering from the hip
+    if (p.moving) s *= 1.9; // moving blooms the cone hard
+    else s *= 0.8; // planting your feet tightens it (rewards standing still)
+    if (p.crouched) s *= 0.62; // crouch tightens further, stacking with standing still
     return s + this.bloom * (this.aiming ? 0.5 : 1);
   }
 
@@ -324,7 +345,7 @@ export class WeaponSystem {
     const eye = player.eyePos();
     const fwd = player.forward();
     const spread = this.effectiveSpread(def, world);
-    this.bloom = Math.min(0.035, this.bloom + def.bloomAdd);
+    this.bloom = Math.min(0.06, this.bloom + def.bloomAdd);
 
     // camera recoil kick
     player.pitch = Math.min(1.45, player.pitch + def.kick);
@@ -557,35 +578,39 @@ export class WeaponSystem {
     if (this.reserve.grenade <= 0 && this.owned.has("pp9")) this.switchTo("pp9");
   }
 
-  private plantMine(world: World, def: WeaponDef): void {
+  /**
+   * Lob a remote mine on a short arc. It sticks where it lands — wall,
+   * floor, or clamped onto an explosive target (gas tank, train engine) —
+   * and arms as a remote charge; RMB still detonates the whole field.
+   */
+  private throwMine(world: World, def: WeaponDef): void {
     if (this.reserve.mine <= 0) {
       world.sfx.dryfire();
       this.cooldown = 0.4;
       return;
     }
-    const eye = world.player.eyePos();
-    const fwd = world.player.forward();
-    const hit = world.physics.raycast(eye, fwd, def.range);
-    if (!hit) {
-      world.events.emit("toast", { text: "Get closer to a surface to plant a mine." });
-      this.cooldown = 0.4;
-      return;
-    }
     this.reserve.mine--;
     this.cooldown = 1 / def.fireRate;
-    world.sfx.minePlant();
+    this.viewModel.onShot(false);
+    world.sfx.whoosh();
+    const eye = world.player.eyePos();
+    const fwd = world.player.forward();
+    const pos = eye.clone().addScaledVector(fwd, 0.4);
+    const vel = fwd.clone().multiplyScalar(13).add(new THREE.Vector3(0, 2.4, 0));
     const mesh = buildGunMesh("mine");
-    mesh.position.copy(hit.point).addScaledVector(hit.normal, 0.035);
-    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), hit.normal);
-    world.scene.add(mesh);
-    let attachedTo: string | null = null;
-    const ref = hit.collider.ref as Destructible | Door | undefined;
-    // charges clamp onto explosive-only targets (gas tanks, train engines)
-    if (ref && (ref as Destructible).bulletImmune && (ref as Destructible).alive) {
-      attachedTo = (ref as Destructible).id;
-      world.mission.onMineAttached(attachedTo);
-    }
-    this.plantedMines.push({ mesh, pos: mesh.position.clone(), attachedTo });
+    world.projectiles.spawnStickyMine(world, pos, vel, mesh, (stickPos, normal, hit) => {
+      mesh.position.copy(stickPos).addScaledVector(normal, 0.035);
+      mesh.quaternion.setFromUnitVectors(UP, normal);
+      world.sfx.minePlant();
+      let attachedTo: string | null = null;
+      const ref = hit?.collider.ref as Destructible | Door | undefined;
+      // charges clamp onto explosive-only targets (gas tanks, train engines)
+      if (ref && (ref as Destructible).bulletImmune && (ref as Destructible).alive) {
+        attachedTo = (ref as Destructible).id;
+        world.mission.onMineAttached(attachedTo);
+      }
+      this.plantedMines.push({ mesh, pos: mesh.position.clone(), attachedTo });
+    });
   }
 
   private detonate(world: World): void {
@@ -623,5 +648,20 @@ export class WeaponSystem {
       }
     }
     world.events.emit("toast", { text: "Nothing mission-critical in frame." });
+  }
+
+  /** Lock pick: open whatever closed door you're pointed at, no keycard needed. */
+  private pickLock(world: World, def: WeaponDef): void {
+    this.cooldown = 1 / def.fireRate;
+    const eye = world.player.eyePos();
+    const hit = world.physics.raycast(eye, world.player.forward(), def.range);
+    const door = hit && hit.collider.kind === "door" ? (hit.collider.ref as Door) : null;
+    if (door && door.isClosed()) {
+      door.requestOpen();
+      world.sfx.keycard();
+      world.events.emit("toast", { text: door.lock !== "none" ? "Lock picked." : "Door opened." });
+    } else {
+      world.events.emit("toast", { text: "Point the pick at a closed door." });
+    }
   }
 }

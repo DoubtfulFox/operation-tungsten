@@ -20,6 +20,9 @@ export class ViewModel {
   private swayX = 0;
   private swayY = 0;
   private adsLerp = 0;
+  /** dual-wield gun meshes, so they can converge toward center on ADS */
+  private dualR: THREE.Object3D | null = null;
+  private dualL: THREE.Object3D | null = null;
 
   constructor(camera: THREE.PerspectiveCamera) {
     camera.add(this.group);
@@ -59,6 +62,12 @@ export class ViewModel {
     this.current = holder;
     this.currentId = id;
     this.raiseT = 0;
+    if (id === "klobb_dual") {
+      this.dualR = holder.getObjectByName("dualR") ?? null;
+      this.dualL = holder.getObjectByName("dualL") ?? null;
+    } else {
+      this.dualR = this.dualL = null;
+    }
   }
 
   private activeMuzzle(): THREE.Object3D | null {
@@ -95,7 +104,7 @@ export class ViewModel {
     return v;
   }
 
-  update(dt: number, player: Player, mouseDX: number, aiming: boolean): void {
+  update(dt: number, player: Player, mouseDX: number, aiming: boolean, scoped = false): void {
     this.adsLerp = THREE.MathUtils.damp(this.adsLerp, aiming ? 1 : 0, 11, dt);
     this.raiseT = Math.min(1, this.raiseT + dt * 5);
     this.recoil = Math.max(0, this.recoil - dt * 7);
@@ -115,7 +124,17 @@ export class ViewModel {
     const bobRoll = Math.sin(player.bobPhase * 0.5) * 0.03 * bob;
     this.group.rotation.set(this.recoil * 0.12 - (1 - this.raiseT) * 0.5, 0.04 + this.swayX * 1.4, bobRoll);
 
+    // dual-wield: at the hip the guns sit apart (right centered, left out to the
+    // side); aiming pulls both toward center so they flank the crosshair evenly.
+    if (this.dualR && this.dualL) {
+      this.dualR.position.x = THREE.MathUtils.lerp(0, 0.06, this.adsLerp);
+      this.dualL.position.x = THREE.MathUtils.lerp(-0.46, -0.1, this.adsLerp);
+    }
+
+    // looking through a scope: hide the gun so it doesn't block the lens
+    if (this.current) this.current.visible = !scoped;
+
     this.flashT -= dt;
-    this.flash.visible = this.flashT > 0;
+    this.flash.visible = this.flashT > 0 && !scoped;
   }
 }

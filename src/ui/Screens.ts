@@ -4,6 +4,7 @@ import type { BestEntry } from "../core/SaveData";
 import { DIFFICULTIES } from "../core/Difficulty";
 import { mountKeyBindings } from "./KeyBindUI";
 import type { Input } from "../core/Input";
+import type { Sfx } from "../audio/Sfx";
 
 export interface MissionEntry {
   def: LevelDef;
@@ -14,6 +15,8 @@ export interface MissionEntry {
 /** Main menu, mission briefing and debrief screens. */
 export class Screens {
   private overlay = document.getElementById("overlay")!;
+
+  constructor(private sfx: Sfx) {}
 
   clear(): void {
     // the watch menu lives in the overlay too — only remove screens
@@ -26,7 +29,25 @@ export class Screens {
     el.className = "screen";
     el.innerHTML = html;
     this.overlay.appendChild(el);
+    this.armShots(el);
     return el;
+  }
+
+  /** Menu surfaces read like a gun sight: a click fires a shot and leaves a hole. */
+  private armShots(el: HTMLDivElement): void {
+    el.addEventListener("mousedown", (e) => {
+      const me = e as MouseEvent;
+      // leave control rebinding alone — mouse-button binds are captured in there
+      if ((me.target as HTMLElement).closest(".controls-box")) return;
+      const hole = document.createElement("div");
+      hole.className = "menu-bullet";
+      hole.style.left = me.clientX + "px";
+      hole.style.top = me.clientY + "px";
+      el.appendChild(hole);
+      window.setTimeout(() => hole.remove(), 1500);
+      this.sfx.ensure();
+      this.sfx.shot("dd4");
+    });
   }
 
   showMenu(missions: MissionEntry[], input: Input, onStart: (id: string) => void): void {
@@ -42,6 +63,7 @@ export class Screens {
       <div class="title">OPERATION TUNGSTEN</div>
       <div class="subtitle">A 1997-STYLE COVERT OPS MISSION · UNOFFICIAL TRIBUTE</div>
       <div class="mission-list">${rows}</div>
+      <button class="btn" data-level="wtest">⚙ WEAPON TEST RANGE</button>
       <button class="btn" data-act="controls">CONTROLS</button>
       <div class="controls-box hidden"></div>
     `);
@@ -91,6 +113,7 @@ export class Screens {
 
   showDebrief(mission: MissionSystem, onRetry: () => void, onMenu: () => void, onNext?: () => void): void {
     const won = mission.outcome === "won";
+    const awards = won ? mission.awards() : [];
     const secs = mission.elapsedSeconds();
     const mm = String(Math.floor(secs / 60)).padStart(2, "0");
     const ss = String(secs % 60).padStart(2, "0");
@@ -115,6 +138,7 @@ export class Screens {
         <span>ALARMS <b>${mission.stats.alarmsTriggered}</b></span>
       </div>
       ${won ? `<div class="debrief-rating">RATING: ${mission.rating()}</div>` : ""}
+      ${awards.length ? `<div class="debrief-awards">${awards.map((a) => `<span class="award" title="${a.desc}">${a.name}</span>`).join("")}</div>` : ""}
       ${won && onNext ? `<button class="btn" data-act="next">NEXT MISSION</button>` : ""}
       <button class="btn" data-act="retry">${won ? "PLAY AGAIN" : "RETRY MISSION"}</button>
       <button class="btn" data-act="menu">MAIN MENU</button>

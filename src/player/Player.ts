@@ -249,7 +249,11 @@ export class Player {
       this.stepTimer -= dt;
       if (this.stepTimer <= 0) {
         this.stepTimer = 1.55 / spd;
-        world.sfx.footstep(spd > 2.6);
+        const loud = spd > 2.6;
+        world.sfx.footstep(loud);
+        // footfalls carry: a full run is loud, a Shift-sneak is near-silent;
+        // crouching (the else branch) makes no sound at all
+        world.emitNoise(this.pos, this.sneaking ? 4 : loud ? 8 : 5, false);
       }
     } else {
       this.stepTimer = 0.12;
@@ -273,6 +277,7 @@ export class Player {
 
   damage(amount: number, world: World): void {
     if (!this.alive || world.mods.invincible) return;
+    world.mission.stats.damageTaken += amount;
     const absorbed = Math.min(this.armor, amount);
     this.armor -= absorbed;
     this.health -= amount - absorbed;

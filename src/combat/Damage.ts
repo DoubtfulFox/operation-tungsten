@@ -53,6 +53,9 @@ export function damageDestructible(world: World, d: Destructible, amount: number
     explode(world, d.pos.clone().setY(1.4), 10, 170);
   } else if (d.kind === "engine") {
     explode(world, d.pos.clone().setY(1.6), 9, 150);
+  } else if (d.kind === "barrel") {
+    // shootable fuel drum — modest blast, chains to nearby barrels via explode()'s destructible sweep
+    explode(world, d.pos.clone().setY(0.6), 4.5, 80);
   } else if (d.kind === "mainframe") {
     world.effects.sparks(d.pos, new THREE.Vector3(0, 1, 0), 0x9fd2ff, 14);
     world.effects.smoke(d.pos, 10);

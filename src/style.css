@@ -82,6 +82,19 @@ body {
 .crosshair.hit .ch-dot {
   background: #ff5a40;
 }
+/* aim-target feedback: red over a hostile in range, dim grey when out of range */
+.crosshair.target-in .ch-bar,
+.crosshair.target-in .ch-dot {
+  background: #ff3b30;
+  box-shadow: 0 0 3px rgba(255, 59, 48, 0.9);
+}
+.crosshair.target-far {
+  opacity: 0.4;
+}
+.crosshair.target-far .ch-bar,
+.crosshair.target-far .ch-dot {
+  background: #9aa39b;
+}
 
 .hud-bars {
   position: absolute;
@@ -332,6 +345,15 @@ body {
   width: 60%;
   height: 1px;
 }
+/* GAUSS railgun: a colder, glowing cyan reticle to read as a prototype optic */
+.scope-overlay.gauss {
+  background: radial-gradient(circle at center, transparent 0, transparent 31%, rgba(2, 10, 14, 0.96) 32%);
+}
+.scope-overlay.gauss::before,
+.scope-overlay.gauss::after {
+  background: rgba(120, 230, 255, 0.85);
+  box-shadow: 0 0 4px rgba(120, 230, 255, 0.6);
+}
 
 .viewfinder {
   position: absolute;
@@ -398,6 +420,41 @@ body {
   inset: 0;
   pointer-events: none;
   background: repeating-linear-gradient(to bottom, rgba(0, 0, 0, 0.22) 0 1px, transparent 1px 3px);
+}
+
+/* menu screens read as a gun sight: crosshair cursor + bullet-shot clicks (#9) */
+.screen,
+.screen button {
+  cursor: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='32'%20height='32'%3E%3Cg%20fill='none'%20stroke='%23e8e6da'%20stroke-width='2'%3E%3Ccircle%20cx='16'%20cy='16'%20r='9'/%3E%3Cpath%20d='M16,1v7M16,24v7M1,16h7M24,16h7'/%3E%3C/g%3E%3Ccircle%20cx='16'%20cy='16'%20r='1.6'%20fill='%23ff3b30'/%3E%3C/svg%3E") 16 16, crosshair;
+}
+.menu-bullet {
+  position: fixed;
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  pointer-events: none;
+  z-index: 9999;
+  border-radius: 50%;
+  background: radial-gradient(circle at center, #000 0 24%, rgba(18, 16, 12, 0.85) 30%, rgba(40, 36, 28, 0.45) 55%, transparent 70%);
+  box-shadow: 0 0 7px rgba(0, 0, 0, 0.85);
+  animation: menu-bullet-fade 1.4s ease-out forwards;
+}
+.menu-bullet::after {
+  content: "";
+  position: absolute;
+  inset: -7px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 205, 130, 0.95);
+  animation: menu-bullet-flash 0.18s ease-out forwards;
+}
+@keyframes menu-bullet-flash {
+  from { opacity: 1; transform: scale(0.35); }
+  to { opacity: 0; transform: scale(1.7); }
+}
+@keyframes menu-bullet-fade {
+  0% { opacity: 1; }
+  70% { opacity: 1; }
+  100% { opacity: 0; }
 }
 
 .title {
@@ -671,6 +728,23 @@ body {
   letter-spacing: 6px;
   margin-bottom: 22px;
 }
+.debrief-awards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  max-width: 520px;
+  margin-bottom: 20px;
+}
+.debrief-awards .award {
+  border: 1px solid #c8b46a;
+  color: #e8d8a0;
+  background: rgba(60, 50, 16, 0.5);
+  padding: 5px 11px;
+  font-size: 12px;
+  letter-spacing: 2px;
+  border-radius: 3px;
+}
 
 /* ---------- watch (pause) menu ---------- */
 
@@ -752,6 +826,27 @@ body {
 }
 .watch-content .obj-pending {
   color: #6fe08c;
+}
+.watch-content .obj-row {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin-bottom: 9px;
+}
+.watch-content .obj-mark {
+  flex: 0 0 auto;
+  opacity: 0.9;
+}
+.watch-content .obj-text {
+  flex: 1;
+}
+.watch-content .obj-divider {
+  margin: 14px 0 9px;
+  padding-top: 8px;
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: #5f8f6e;
+  border-top: 1px solid rgba(111, 224, 140, 0.25);
 }
 .watch-content label {
   display: block;

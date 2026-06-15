@@ -118,12 +118,30 @@ export class CharacterRig {
     }
 
     if (gunId) {
-      const hand = model.getObjectByName("Wrist.R");
+      const hand = model.getObjectByName("WristR");
       if (hand) {
         const gun = buildGunMesh(gunId);
-        gun.scale.setScalar(1 / s);
-        gun.position.set(0, 0.03 / s, 0);
-        gun.rotation.set(-Math.PI / 2, 0, 0);
+        // Pose the skeleton in the patrol idle (what guards show most of the time)
+        // before measuring the hand, so the gun is oriented against a real held pose.
+        const idle = this.actions.get("Idle");
+        if (idle) {
+          idle.reset().play();
+          this.mixer.update(0);
+          this.current = "Idle";
+        }
+        this.root.updateMatrixWorld(true);
+        // The rig's bones carry an inflated world scale (see note above), so divide
+        // by the hand's *actual* world scale — not just the holder scale — to land
+        // the gun at its natural (viewmodel) size in the guard's grip.
+        const inv = 1 / (hand.getWorldScale(new THREE.Vector3()).x || 1);
+        gun.scale.setScalar(inv);
+        // Aim the barrel (gun-local -Z) along the body's forward by cancelling the
+        // hand bone's world rotation. A fixed Euler can't do this for these rigs —
+        // the hand bone's orientation varies, so derive it from the live pose.
+        const qHand = hand.getWorldQuaternion(new THREE.Quaternion());
+        const qRoot = this.root.getWorldQuaternion(new THREE.Quaternion());
+        gun.quaternion.copy(qHand.invert().multiply(qRoot));
+        gun.position.set(0, 0.03 * inv, 0);
         hand.add(gun);
       }
     }

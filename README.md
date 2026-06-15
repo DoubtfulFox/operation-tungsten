@@ -88,7 +88,7 @@ click a binding, and press the input you want. Bindings persist locally.
 - Grouped weapon slots (1–8) — tap a slot key again to cycle within it.
   Melee, three pistols (incl. the hidden **Golden Gun**), the **VZ-61**
   machine pistol (grab a second for **dual-wield**), the scoped **SVD
-  sniper** and the **ZMEY railgun**, grenades, mines and the camera.
+  sniper** and the **GAUSS railgun**, grenades, mines and the camera.
 - The watch holds a **Modifiers** page of GoldenEye-style cheats — big
   head, paintball, turbo, invincibility, infinite ammo, all guns, slow
   motion, tiny guards — all freely toggleable, and a **Controls** page.

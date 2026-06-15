@@ -91,6 +91,12 @@ export class Input {
     return c ? this.keysPressed.has(c) : false;
   }
 
+  /** Forget an action's held state (e.g. a menu click that must not carry into gameplay). */
+  clearHeld(action: GameAction): void {
+    const c = this.bindings[action];
+    if (c) this.keysDown.delete(c);
+  }
+
   /** Assign a code to an action; clears it from any other action it collided with. */
   rebind(action: GameAction, code: string): void {
     for (const k of Object.keys(this.bindings) as GameAction[]) {

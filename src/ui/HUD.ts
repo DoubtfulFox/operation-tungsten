@@ -176,7 +176,10 @@ export class HUD {
       this.ammoHint.textContent = "LMB THROW";
     } else if (def.kind === "mine") {
       this.ammoCount.textContent = String(ws.reserve.mine);
-      this.ammoHint.textContent = `PLANTED: ${ws.plantedMines.length} · LMB PLANT · RMB DETONATE`;
+      this.ammoHint.textContent = `PLANTED: ${ws.plantedMines.length} · LMB THROW · RMB DETONATE`;
+    } else if (def.kind === "tool") {
+      this.ammoCount.textContent = "⚷";
+      this.ammoHint.textContent = "LMB / F — PICK LOCK";
     } else {
       this.ammoCount.textContent = "▣";
       this.ammoHint.textContent = "LMB CAPTURE · RMB ZOOM";
@@ -189,8 +192,11 @@ export class HUD {
     const scopeOn = ws.aiming && def.zoomFov > 0 && def.kind === "gun";
     const vfOn = def.id === "camera";
     this.scope.style.display = scopeOn ? "block" : "none";
+    this.scope.classList.toggle("gauss", scopeOn && def.id === "railgun");
     this.viewfinder.style.display = vfOn ? "block" : "none";
     this.crosshair.style.display = scopeOn || vfOn ? "none" : "block";
+    this.crosshair.classList.toggle("target-in", ws.aimTarget === "in");
+    this.crosshair.classList.toggle("target-far", ws.aimTarget === "far");
 
     // dynamic crosshair: bars spread with the live bullet-cone
     if (!scopeOn && !vfOn) {
