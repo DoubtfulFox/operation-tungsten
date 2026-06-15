@@ -25,7 +25,10 @@ export class MissionSystem {
     shotsFired: 0,
     shotsHit: 0,
     kills: 0,
+    meleeKills: 0,
     alarmsTriggered: 0,
+    damageTaken: 0,
+    detected: false,
     startTime: 0,
     endTime: 0
   };
@@ -90,7 +93,18 @@ export class MissionSystem {
   }
 
   allRequiredDone(): boolean {
-    return this.objectives.filter((o) => o.required && o.def.trigger.kind !== "extract").every((o) => o.state === "done");
+    return this.objectives
+      .filter((o) => o.required && o.def.trigger.kind !== "extract")
+      .every((o) => {
+        if (o.state === "done") return true;
+        // a required escort ("survives") is satisfied the moment you reach exfil with them
+        // alive — it only formally completes once extraction settles the side objectives
+        if (o.def.trigger.kind === "npcSurvives" && this.freedNpcs.has(o.def.trigger.npcId)) {
+          const npc = this.world.npcs.find((n) => n.id === (o.def.trigger as { npcId: string }).npcId);
+          return !!(npc && npc.alive);
+        }
+        return false;
+      });
   }
 
   // ---- generic trigger handlers -------------------------------------------
@@ -139,6 +153,11 @@ export class MissionSystem {
     for (const o of this.objectives) {
       if (o.state === "pending" && o.def.trigger.kind === "npcSurvives" && o.def.trigger.npcId === id) {
         this.fail(o.id);
+        // a required "survives" objective = a true escort: losing them loses the mission
+        if (o.required) {
+          const ndef = this.world.level.def.npcs?.find((n) => n.id === id);
+          this.missionFail(ndef?.escortFailReason ?? ndef?.killFailReason ?? "The escort was killed.");
+        }
       }
     }
   }
@@ -216,27 +235,17 @@ export class MissionSystem {
       }
     }
 
-    const zone = this.world.level.def.extraction;
+    const ext = this.world.level.def.extraction;
+    // board-to-exfil missions complete via boardExtract() (an F interact at the truck),
+    // not by walking into a region
+    if (ext.boardProp) return;
+
     const [cx, cz] = NavGrid.toCell(this.world.player.pos);
-    const inZone = cx >= zone.x0 && cx <= zone.x1 && cz >= zone.z0 && cz <= zone.z1;
+    const inZone = cx >= ext.x0 && cx <= ext.x1 && cz >= ext.z0 && cz <= ext.z1;
     if (!inZone) return;
 
     if (this.allRequiredDone()) {
-      for (const o of this.objectives) {
-        if (o.def.trigger.kind === "extract") this.complete(o.id);
-      }
-      // settle remaining side objectives
-      for (const o of this.objectives) {
-        if (o.state !== "pending") continue;
-        const t = o.def.trigger;
-        if (t.kind === "noAlarm") this.complete(o.id);
-        if (t.kind === "npcSurvives" && this.freedNpcs.has(t.npcId)) {
-          const npc = this.world.npcs.find((n) => n.id === (t as { npcId: string }).npcId);
-          if (npc && npc.alive) this.complete(o.id);
-        }
-      }
-      this.outcome = "won";
-      this.stats.endTime = performance.now();
+      this.settleAndWin();
     } else {
       this.extractHintT -= dt;
       if (this.extractHintT <= 0) {
@@ -244,6 +253,35 @@ export class MissionSystem {
         this.world.events.emit("toast", { text: "Objectives incomplete — check your watch (TAB)." });
       }
     }
+  }
+
+  /** Board-the-truck exfil — called by the F interact at the extraction prop. */
+  boardExtract(): boolean {
+    if (this.outcome !== "playing") return false;
+    if (!this.allRequiredDone()) {
+      this.world.events.emit("toast", { text: "Objectives incomplete — check your watch (TAB)." });
+      return false;
+    }
+    this.settleAndWin();
+    return true;
+  }
+
+  private settleAndWin(): void {
+    for (const o of this.objectives) {
+      if (o.def.trigger.kind === "extract") this.complete(o.id);
+    }
+    // settle remaining side objectives
+    for (const o of this.objectives) {
+      if (o.state !== "pending") continue;
+      const t = o.def.trigger;
+      if (t.kind === "noAlarm") this.complete(o.id);
+      if (t.kind === "npcSurvives" && this.freedNpcs.has(t.npcId)) {
+        const npc = this.world.npcs.find((n) => n.id === (t as { npcId: string }).npcId);
+        if (npc && npc.alive) this.complete(o.id);
+      }
+    }
+    this.outcome = "won";
+    this.stats.endTime = performance.now();
   }
 
   // ---- debrief -----------------------------------------------------------
@@ -264,5 +302,19 @@ export class MissionSystem {
     if (bonus.length > 0 && done >= bonus.length) return "00 AGENT";
     if (done >= bonus.length / 2 && done > 0) return "SECRET AGENT";
     return "AGENT";
+  }
+
+  /** GoldenEye-style honor badges — only meaningful on a win. */
+  awards(): Array<{ name: string; desc: string }> {
+    if (this.outcome !== "won") return [];
+    const s = this.stats;
+    const out: Array<{ name: string; desc: string }> = [];
+    if (s.alarmsTriggered === 0) out.push({ name: "NO ALARMS", desc: "Never tripped an alarm" });
+    if (!s.detected) out.push({ name: "GHOST", desc: "No guard ever spotted you" });
+    if (s.damageTaken === 0) out.push({ name: "UNTOUCHABLE", desc: "Took no damage" });
+    if (s.kills === 0) out.push({ name: "PACIFIST", desc: "Killed no one" });
+    if (s.shotsFired > 0 && s.shotsHit === s.shotsFired) out.push({ name: "DEAD-EYE", desc: "100% accuracy" });
+    if (s.kills > 0 && s.meleeKills === s.kills) out.push({ name: "SILENT HANDS", desc: "Only melee kills" });
+    return out;
   }
 }

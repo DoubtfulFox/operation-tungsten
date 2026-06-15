@@ -7,7 +7,7 @@ import type { Npc } from "./Npc";
 
 const HE = new THREE.Vector3(0.28, 0.85, 0.28);
 
-type SciState = "captive" | "walking" | "hiding" | "dead";
+type SciState = "captive" | "walking" | "hiding" | "following" | "dead";
 
 /**
  * A captive scientist (Dr. Volkov in M1): free them for whatever they
@@ -28,6 +28,11 @@ export class Scientist implements Npc {
   private vel = new THREE.Vector3();
   private targetYaw = Math.PI;
   private hideSpot: THREE.Vector3;
+  /** escort follow bookkeeping */
+  private followRepathT = 0;
+  private noProgressT = 0;
+  private stuckCount = 0;
+  private lastFollowPos = new THREE.Vector3();
 
   constructor(
     world: World,
@@ -37,6 +42,9 @@ export class Scientist implements Npc {
     this.pos.set(def.x, HE.y + 0.02, def.z);
     this.yaw = this.targetYaw = def.yaw ?? Math.PI;
     this.hideSpot = NavGrid.center(def.hideCell[0], def.hideCell[1], HE.y);
+    // an escort takes sustained fire on the way out — give him a real health pool
+    if (def.escort) this.health = 70;
+    this.lastFollowPos.copy(this.pos);
 
     this.rig = new CharacterRig("scientist", null);
     world.scene.add(this.rig.root);
@@ -57,10 +65,47 @@ export class Scientist implements Npc {
   free(world: World): void {
     if (this.freed || !this.alive) return;
     this.freed = true;
+    if (this.def.escort) {
+      // true escort: fall in behind the player and follow them out
+      this.state = "following";
+      this.path = null;
+      this.pathIdx = 0;
+      return;
+    }
     this.state = "walking";
     const path = world.level.nav.findPath(NavGrid.toCell(this.pos), NavGrid.toCell(this.hideSpot));
     this.path = path && path.length > 0 ? path : null;
     this.pathIdx = 0;
+  }
+
+  /** Advance along the current path, cutting corners and opening unlocked doors in the way. */
+  private steerPath(world: World, speed: number): THREE.Vector3 | null {
+    if (!this.path || this.pathIdx >= this.path.length) return null;
+    if (this.pathIdx + 1 < this.path.length) {
+      const n2 = this.path[this.pathIdx + 1];
+      const from = new THREE.Vector3(this.pos.x, 0.9, this.pos.z);
+      if (world.physics.lineOfSight(from, new THREE.Vector3(n2.x, 0.9, n2.z))) this.pathIdx++;
+    }
+    const wp = this.path[this.pathIdx];
+    const dx = wp.x - this.pos.x;
+    const dz = wp.z - this.pos.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist < 0.4) {
+      this.pathIdx++;
+      return this.steerPath(world, speed);
+    }
+    // open an unlocked slide door blocking the way (player-opened locked doors stay open as he trails)
+    const [ccx, ccz] = NavGrid.toCell(this.pos);
+    const [wcx, wcz] = NavGrid.toCell(wp);
+    for (const [cx, cz] of [
+      [wcx, wcz],
+      [ccx, ccz]
+    ] as [number, number][]) {
+      const door = world.level.nav.doorAtCell(cx, cz);
+      if (door && door.kind === "slide" && !door.isPassable() && door.lock === "none") door.requestOpen();
+    }
+    this.targetYaw = Math.atan2(-dx / dist, -dz / dist);
+    return new THREE.Vector3((dx / dist) * speed, 0, (dz / dist) * speed);
   }
 
   hit(dmg: number, world: World): void {
@@ -109,6 +154,81 @@ export class Scientist implements Npc {
         }
       } else {
         this.state = "hiding";
+      }
+    } else if (this.state === "following") {
+      const player = world.player;
+      const dxp = player.pos.x - this.pos.x;
+      const dzp = player.pos.z - this.pos.z;
+      const distP = Math.hypot(dxp, dzp);
+
+      // nearest active threat that can actually see me
+      let threat: (typeof world.guards)[number] | null = null;
+      let threatD = Infinity;
+      for (const gd of world.guards) {
+        if (!gd.alive || (gd.state !== "combat" && gd.state !== "chase")) continue;
+        const d = Math.hypot(gd.pos.x - this.pos.x, gd.pos.z - this.pos.z);
+        if (d < 13 && d < threatD && world.physics.lineOfSight(gd.center(), this.center())) {
+          threat = gd;
+          threatD = d;
+        }
+      }
+
+      // stuck recovery: if stranded far from the player, teleport in behind them
+      this.noProgressT += dt;
+      if (this.noProgressT > 0.5) {
+        const moved = this.pos.distanceTo(this.lastFollowPos);
+        this.stuckCount = distP > 8 && moved < 0.25 ? this.stuckCount + 1 : 0;
+        this.lastFollowPos.copy(this.pos);
+        this.noProgressT = 0;
+      }
+      if (distP > 18 || this.stuckCount >= 6) {
+        const spot = world.level.nav.randomNearby(player.pos, 2);
+        if (spot && !world.physics.overlaps(new THREE.Vector3(spot.x, HE.y, spot.z), HE)) {
+          this.pos.set(spot.x, HE.y + 0.02, spot.z);
+        }
+        this.path = null;
+        this.followRepathT = 0;
+        this.stuckCount = 0;
+      }
+
+      const gap = 2.6;
+      if (distP < gap + 0.3 && !threat) {
+        // tucked in behind the player — idle and face them
+        this.path = null;
+        this.targetYaw = Math.atan2(-dxp, -dzp);
+      } else {
+        // target a point behind the player, or hug their lee side away from the threat
+        let desired: THREE.Vector3;
+        if (threat) {
+          const ax = this.pos.x - threat.pos.x;
+          const az = this.pos.z - threat.pos.z;
+          const al = Math.hypot(ax, az) || 1;
+          desired = new THREE.Vector3(player.pos.x + (ax / al) * 1.0, this.pos.y, player.pos.z + (az / al) * 1.0);
+        } else {
+          const back = player.forward().multiplyScalar(-gap);
+          desired = new THREE.Vector3(player.pos.x + back.x, this.pos.y, player.pos.z + back.z);
+        }
+        this.followRepathT -= dt;
+        if (this.followRepathT <= 0 || !this.path || this.pathIdx >= this.path.length) {
+          this.followRepathT = 0.4;
+          const path = world.level.nav.findPath(NavGrid.toCell(this.pos), NavGrid.toCell(desired));
+          this.path = path && path.length > 0 ? path : null;
+          this.pathIdx = 0;
+          if (this.path) this.path[this.path.length - 1] = new THREE.Vector3(desired.x, this.pos.y, desired.z);
+        }
+        running = world.alarm.active || distP > 5;
+        const speed = threat ? 2.2 : running ? 3.6 : 2.5;
+        const w = this.steerPath(world, speed);
+        if (w) {
+          wish.copy(w);
+        } else {
+          const d = new THREE.Vector3(desired.x - this.pos.x, 0, desired.z - this.pos.z);
+          const dl = d.length();
+          if (dl > 0.4) {
+            wish.set((d.x / dl) * speed, 0, (d.z / dl) * speed);
+            this.targetYaw = Math.atan2(-d.x / dl, -d.z / dl);
+          }
+        }
       }
     } else if (this.state === "hiding") {
       this.targetYaw += Math.sin(world.time * 1.3) * dt * 0.3;

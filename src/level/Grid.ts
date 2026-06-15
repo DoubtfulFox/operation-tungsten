@@ -7,7 +7,7 @@ export const WALL_H = 3;
 export const VENT_H = 1.3;
 
 export function isFloorChar(ch: CellChar): boolean {
-  return ch === "." || ch === "v" || ch === "D" || ch === "L" || ch === "O" || ch === "G";
+  return ch === "." || ch === "v" || ch === "D" || ch === "L" || ch === "O" || ch === "P" || ch === "G";
 }
 
 /** Cell coordinate -> world coordinate (c=12 gives cell center, c=12.5 gives the boundary). */

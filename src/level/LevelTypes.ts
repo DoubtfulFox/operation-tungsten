@@ -75,6 +75,13 @@ export interface GateDef {
   /** world-space panel center */
   x: number;
   z: number;
+  /** "pick" requires the lockpick to open (padlock shown); default unlocked */
+  lock?: "none" | "pick";
+  /**
+   * Sealed shut (player- and AI-unopenable) until the alarm fires, then latches
+   * open for good. The gate's `id` is the release-group key for any dormant guards.
+   */
+  openOnAlarm?: boolean;
 }
 
 export interface NpcDef {
@@ -92,6 +99,10 @@ export interface NpcDef {
   freeToasts: string[];
   grantsKeycard?: KeycardId;
   killFailReason: string;
+  /** true escort: once freed the NPC follows the player instead of fleeing to hideCell */
+  escort?: boolean;
+  /** fail message when a freed escort is killed (defaults to killFailReason) */
+  escortFailReason?: string;
 }
 
 export interface EnvironmentDef {
@@ -130,7 +141,8 @@ export interface LevelDef {
   guards: GuardSpawnDef[];
   alarmPanels: AlarmPanelDef[];
   playerStart: { cx: number; cz: number; yaw: number };
-  extraction: { x0: number; z0: number; x1: number; z1: number };
+  /** exfil region; if `boardProp` is set, completion is an F-interact at that prop (truck) instead */
+  extraction: { x0: number; z0: number; x1: number; z1: number; boardProp?: string };
   reinforcementSpawns: Array<[number, number]>;
   environment: EnvironmentDef;
   barriers?: BarrierSeg[];
@@ -143,5 +155,7 @@ export interface LevelDef {
   /** timed escape: starts when the named objective completes */
   escape?: { afterObjective: string; seconds: number; failReason: string };
   musicTheme: string;
+  /** mission-specific gear added to the loadout (slot 8 EQUIPMENT), e.g. "lockpick" */
+  equipment?: string[];
   objectives: ObjectiveDef[];
 }

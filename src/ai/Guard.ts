@@ -10,6 +10,7 @@ import type { CoverSpot, Destructible } from "../level/LevelBuilder";
 import type { Door } from "../level/Door";
 import type { Modifiers } from "../core/Modifiers";
 import type { DifficultyDef } from "../core/Difficulty";
+import type { Npc } from "../npc/Npc";
 
 type GuardState = "post" | "patrol" | "investigate" | "chase" | "combat" | "alarm" | "dead";
 
@@ -59,6 +60,13 @@ export class Guard {
   state: GuardState = "post";
   /** reinforcements actively hunt the player while the alarm runs */
   hunter = false;
+  /** reserve squad: inert (no perception/patrol) until its group is released */
+  dormant = false;
+  /** which alarm-gate group releases this guard (matches a gate id) */
+  releaseGroup: string | null = null;
+  /** 007 co-targeting: a committed escort foe (null = fighting the player) */
+  private foeNpc: Npc | null = null;
+  private retargetT = 0;
   bodyNoticed = false;
   /** set just before a stealth takedown: dies without a sound */
   silent = false;
@@ -124,6 +132,8 @@ export class Guard {
   constructor(world: World, def: GuardSpawnDef) {
     this.kind = def.kind;
     this.keycard = def.keycard;
+    this.dormant = !!def.dormantGroup;
+    this.releaseGroup = def.dormantGroup ?? null;
     this.health = Math.round(HEALTH[def.kind] * world.difficulty.guardHealth);
     this.gun = GUNS[def.gun ?? def.kind];
     this.gunId = gunIdFor(def.kind, def.gun);
@@ -140,7 +150,7 @@ export class Guard {
     world.scene.add(this.rig.root);
 
     this.unsubNoise = world.events.on("noise", (n) => {
-      if (!this.alive) return;
+      if (!this.alive || this.dormant) return;
       const d = this.pos.distanceTo(n.pos);
       if (d > n.radius) return;
       if (this.state === "combat" || this.state === "dead" || this.state === "alarm") return;
@@ -262,6 +272,7 @@ export class Guard {
   }
 
   private onSpotPlayer(world: World): void {
+    world.mission.stats.detected = true;
     this.lastKnown = world.player.pos.clone();
     if (this.alertLevel < 2) {
       this.alertLevel = 2;
@@ -287,6 +298,7 @@ export class Guard {
 
   /** Commit to a fight and immediately face the player (no slow wall-pivot). */
   private enterCombat(world: World): void {
+    world.mission.stats.detected = true;
     this.state = "combat";
     this.alarmPanel = null;
     this.alarmCell = null;
@@ -297,7 +309,10 @@ export class Guard {
   // ---- movement ---------------------------------------------------------
 
   private setPath(world: World, target: THREE.Vector3): void {
-    const path = world.level.nav.findPath(NavGrid.toCell(this.pos), NavGrid.toCell(target));
+    // an alerted officer will route through (and unlock) doors he has the key for
+    const alerted = this.hunter || (this.state !== "post" && this.state !== "patrol");
+    const keys = alerted && this.keycard ? new Set<KeycardId>([this.keycard]) : undefined;
+    const path = world.level.nav.findPath(NavGrid.toCell(this.pos), NavGrid.toCell(target), keys);
     this.path = path && path.length > 0 ? path : null;
     this.pathIdx = 0;
     if (this.path) {
@@ -354,7 +369,7 @@ export class Guard {
     ]) {
       const door = world.level.nav.doorAtCell(cx, cz);
       if (door && door.kind === "slide" && !door.isPassable()) {
-        if (door.lock === "none") {
+        if (door.lock === "none" || door.lock === this.keycard) {
           door.requestOpen();
           if (door.isClosed()) return false; // wait (wishVel stays zero)
         }
@@ -372,6 +387,44 @@ export class Guard {
 
   // ---- combat -----------------------------------------------------------
 
+  /** The freed escorted NPC, if one is out and alive — a valid secondary target. */
+  private escortFoe(world: World): Npc | null {
+    for (const n of world.npcs) if (n.freed && n.alive && n.def.escort) return n;
+    return null;
+  }
+
+  /** Aim point on an NPC's upper torso. */
+  private npcAim(n: Npc): THREE.Vector3 {
+    return new THREE.Vector3(n.pos.x, 1.45, n.pos.z);
+  }
+
+  /** Agent/Super opportunistic aim-diversion onto an exposed escort (007 commits via foeNpc). */
+  private wantDivert(world: World, escort: Npc): boolean {
+    if (world.difficulty.id === "007") return false;
+    if (!world.physics.lineOfSight(this.eye(), this.npcAim(escort))) return false;
+    const seesPlayer = world.physics.lineOfSight(this.eye(), world.player.eyePos());
+    return Math.random() < (seesPlayer ? 0.22 : 0.6);
+  }
+
+  /** 007 only: periodically commit to the escort as this guard's primary foe (or back to the player). */
+  private maybeCoTarget(dt: number, world: World): void {
+    if (world.difficulty.id !== "007") {
+      this.foeNpc = null;
+      return;
+    }
+    this.retargetT -= dt;
+    if (this.retargetT > 0) return;
+    this.retargetT = 2;
+    const escort = this.escortFoe(world);
+    if (!escort || !world.physics.lineOfSight(this.eye(), this.npcAim(escort))) {
+      this.foeNpc = null;
+      return;
+    }
+    const dE = this.pos.distanceTo(escort.pos);
+    const dP = this.pos.distanceTo(world.player.pos);
+    this.foeNpc = dE < dP * 1.15 || Math.random() < 0.4 ? escort : null;
+  }
+
   private fireRound(world: World): void {
     const player = world.player;
     const gunPos = this.eye().addScaledVector(this.facingDir(), 0.35);
@@ -381,16 +434,28 @@ export class Guard {
     world.emitNoise(this.pos, 26, false);
 
     const pEye = player.eyePos();
-    const dist = gunPos.distanceTo(pEye);
+    // pick the foe this round targets: the player by default, but guards fire on an exposed
+    // escort — always on a committed 007 co-target (foeNpc), else an opportunistic divert
+    const escort = this.escortFoe(world);
+    let aimNpc: Npc | null = null;
+    if (this.foeNpc && this.foeNpc.alive) aimNpc = this.foeNpc;
+    else if (escort && this.wantDivert(world, escort)) aimNpc = escort;
+    const aimEye = aimNpc ? this.npcAim(aimNpc) : pEye;
+
+    const dist = gunPos.distanceTo(aimEye);
     let p = 0.32 * (1 - dist / this.gun.falloffRange);
-    if (player.moving) p *= 0.75;
-    if (player.crouched) p *= 0.75;
+    if (aimNpc) {
+      p *= 0.85; // a moving civilian — a touch harder than a clean shot
+    } else {
+      if (player.moving) p *= 0.75;
+      if (player.crouched) p *= 0.75;
+    }
     if (world.alarm.active) p += 0.04;
     p = THREE.MathUtils.clamp(p * world.difficulty.guardAccuracy, 0.05, world.difficulty.accuracyCap);
     const hitRoll = Math.random() < p;
 
     // where is the round actually going?
-    const target = pEye.clone();
+    const target = aimEye.clone();
     if (!hitRoll) {
       target.add(
         new THREE.Vector3((Math.random() - 0.5) * 1.6, (Math.random() - 0.5) * 1.2, (Math.random() - 0.5) * 1.6)
@@ -420,7 +485,7 @@ export class Guard {
       world.effects.blood(end);
       return;
     }
-    if (hitRoll && endT >= dist - 0.6) {
+    if (!aimNpc && hitRoll && endT >= dist - 0.6) {
       let dmg = THREE.MathUtils.randInt(this.gun.dmgMin, this.gun.dmgMax);
       if (this.kind === "heavy") dmg = Math.max(4, Math.round(26 * (1 - dist / this.gun.falloffRange)));
       player.damage(Math.max(1, Math.round(dmg * world.difficulty.guardDamage)), world);
@@ -588,6 +653,12 @@ export class Guard {
   private combatThink(dt: number, world: World, sees: boolean): void {
     const player = world.player;
 
+    // 007: this guard may commit to the escorted NPC as its foe — fight whichever it sees
+    this.maybeCoTarget(dt, world);
+    const foe = this.foeNpc && this.foeNpc.alive ? this.foeNpc : null;
+    const foePos = foe ? foe.pos : player.pos;
+    const seesFoe = foe ? world.physics.lineOfSight(this.eye(), this.npcAim(foe)) : sees;
+
     // mid-roll: keep moving, no shooting
     if (this.dodgeT > 0) {
       this.dodgeT -= dt;
@@ -607,10 +678,10 @@ export class Guard {
       return;
     }
 
-    if (sees) {
-      this.lastKnown = player.pos.clone();
+    if (seesFoe) {
+      this.lastKnown = foePos.clone();
       this.loseSightT = 0;
-      const to = player.pos.clone().sub(this.pos);
+      const to = foePos.clone().sub(this.pos);
       this.targetYaw = Math.atan2(-to.x, -to.z);
 
       if (this.reactionT > 0) {
@@ -686,6 +757,13 @@ export class Guard {
   update(dt: number, world: World): void {
     if (this.state === "dead") {
       this.updateDeath(dt, world);
+      return;
+    }
+    // reserve squad: stand inert behind the sealed gate until released by the alarm
+    if (this.dormant) {
+      this.wishVel.set(0, 0, 0);
+      this.integrate(dt, world);
+      this.applyPose(dt);
       return;
     }
     this.lastHitT += dt;
@@ -792,8 +870,9 @@ export class Guard {
         if (this.hunter && world.alarm.active && !this.flankVia) {
           this.hunterRepathT -= dt;
           if (this.hunterRepathT <= 0) {
-            this.hunterRepathT = 2.5;
             this.setPath(world, world.player.pos);
+            // retry fast until a route exists (e.g. a reserve blast door still opening)
+            this.hunterRepathT = this.path ? 2.5 : 0.5;
           }
         }
         if (this.path) {
@@ -808,10 +887,12 @@ export class Guard {
         } else if (this.flankVia) {
           this.flankVia = null;
           this.setPath(world, world.player.pos);
-        } else {
+        } else if (!(this.hunter && world.alarm.active)) {
           this.state = "investigate";
           this.investigateT = 2.5;
         }
+        // else: an alarm hunter with no route holds and lets the throttled repath above
+        // retry (e.g. a reserve blast door still opening) instead of wandering off
         break;
       }
       case "combat": {
@@ -947,6 +1028,14 @@ export class Guard {
   }
 
   /** Reinforcements spawn already hunting; `via` makes them flank instead of beeline. */
+  /** Wake a dormant reserve guard: the gate's open, now deploy and hunt the player. */
+  release(world: World): void {
+    if (!this.dormant) return;
+    this.dormant = false;
+    world.sfx.guardAlert(this.pos);
+    this.startHunting(world);
+  }
+
   startHunting(world: World, via?: THREE.Vector3): void {
     this.hunter = true;
     this.alertLevel = 2;
@@ -954,22 +1043,26 @@ export class Guard {
     this.state = "chase";
     this.flankVia = via ?? null;
     this.setPath(world, via ?? this.lastKnown);
-    this.hunterRepathT = 2.5;
+    // if the first route failed (e.g. released behind a still-opening blast door), retry soon
+    this.hunterRepathT = this.path ? 2.5 : 0.5;
   }
 
-  hit(dmg: number, world: World, headshot: boolean, fromPos: THREE.Vector3 | null): void {
+  hit(dmg: number, world: World, headshot: boolean, fromPos: THREE.Vector3 | null, melee = false): void {
     if (!this.alive) return;
     this.health -= dmg;
     this.lastHitT = 0;
     this.staggerT = Math.max(this.staggerT, headshot ? 0.4 : 0.22);
     if (this.health <= 0) {
-      this.die(world);
+      this.die(world, melee);
       return;
     }
     this.rig.play("HitRecieve", { once: true, fade: 0.06 });
     // getting shot tells them roughly where you are
     this.alertLevel = 2;
     if (fromPos) {
+      // the player just shot us — turn back onto them, never keep co-targeting the escort
+      this.foeNpc = null;
+      this.retargetT = Math.max(this.retargetT, 1.5);
       this.lastKnown = world.player.pos.clone();
       // being shot always overrides an alarm run — turn and fight (or hunt)
       if (this.state !== "combat") {
@@ -985,7 +1078,7 @@ export class Guard {
     }
   }
 
-  private die(world: World): void {
+  private die(world: World, melee = false): void {
     this.alive = false;
     this.state = "dead";
     this.releaseCover();
@@ -993,6 +1086,7 @@ export class Guard {
     this.rig.play("Death", { once: true, fade: 0.1 });
     if (!this.silent) world.sfx.guardDie(this.pos);
     world.mission.stats.kills++;
+    if (melee) world.mission.stats.meleeKills++;
     world.events.emit("guardKilled", { pos: this.pos.clone() });
     if (this.unsubNoise) this.unsubNoise();
 

@@ -19,10 +19,13 @@ export class AlarmSystem {
   private spawns: Array<[number, number]>;
   /** rotating flank bearing so waves arrive from different directions */
   private flankIdx = 0;
+  /** gate ids that latch open on alarm, each releasing its dormant guard group */
+  private alarmGateIds: string[];
 
   constructor(def: LevelDef) {
     for (const ap of def.alarmPanels) this.panelCells.set(ap.id, [ap.cx, ap.cz]);
     this.spawns = def.reinforcementSpawns;
+    this.alarmGateIds = (def.gates ?? []).filter((g) => g.openOnAlarm).map((g) => g.id);
   }
 
   nearestPanel(world: World, pos: THREE.Vector3): { panel: Destructible; cell: [number, number] } | null {
@@ -55,6 +58,14 @@ export class AlarmSystem {
     world.sfx.alarmStart();
     world.events.emit("alarm", { active: true });
     if (!scripted) world.mission.onAlarm();
+
+    // blast the reserve doors open and deploy the dormant squad behind each
+    for (const id of this.alarmGateIds) {
+      world.level.gates.get(id)?.latchOpen();
+      for (const g of world.guards) {
+        if (g.dormant && g.releaseGroup === id) g.release(world);
+      }
+    }
   }
 
   update(dt: number, world: World): void {

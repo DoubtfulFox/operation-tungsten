@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { CELL, type GridMap } from "../level/Grid";
 import type { Door } from "../level/Door";
+import type { KeycardId } from "../types";
 
 /**
  * Grid A* over the level map. Walkability comes straight from the
@@ -38,12 +39,20 @@ export class NavGrid {
     if (cx >= 0 && cz >= 0 && cx < this.w && cz < this.h) this.blocked[cz * this.w + cx] = 1;
   }
 
-  isFree(cx: number, cz: number): boolean {
+  isFree(cx: number, cz: number, keys?: Set<KeycardId>): boolean {
     if (cx < 0 || cz < 0 || cx >= this.w || cz >= this.h) return false;
     const i = cz * this.w + cx;
     if (!this.walkable[i] || this.blocked[i]) return false;
     const door = this.doorAt.get(i);
-    if (door && door.lock !== "none" && !door.isPassable()) return false;
+    // a locked door blocks pathing unless it's open, or the pather holds its key
+    // ("pick" and "sealed" gates are never key-openable — only a lockpick / the alarm)
+    if (
+      door &&
+      door.lock !== "none" &&
+      !door.isPassable() &&
+      !(door.lock !== "pick" && door.lock !== "sealed" && keys && keys.has(door.lock))
+    )
+      return false;
     return true;
   }
 
@@ -56,10 +65,10 @@ export class NavGrid {
   }
 
   /** A* (4-directional). Returns world-space waypoint centers, excluding the start cell. */
-  findPath(from: [number, number], to: [number, number]): THREE.Vector3[] | null {
+  findPath(from: [number, number], to: [number, number], keys?: Set<KeycardId>): THREE.Vector3[] | null {
     const [sx, sz] = from;
     const [tx, tz] = to;
-    if (!this.isFree(tx, tz) || !this.isFree(sx, sz)) return null;
+    if (!this.isFree(tx, tz, keys) || !this.isFree(sx, sz, keys)) return null;
     if (sx === tx && sz === tz) return [];
 
     const open: number[] = [sz * this.w + sx];
@@ -101,7 +110,7 @@ export class NavGrid {
         // prevent horizontal wrap
         if (d === 1 && nx === 0) continue;
         if (d === -1 && nx === this.w - 1) continue;
-        if (!this.isFree(nx, nz)) continue;
+        if (!this.isFree(nx, nz, keys)) continue;
         const ng = cg + 1;
         if (ng < (g.get(nb) ?? Infinity)) {
           came.set(nb, cur);
