@@ -23,6 +23,15 @@ saved automatically and survive reinstalls and updates.
 
 ---
 
+## Controls
+
+The game supports basic keyboard and mouse. Just view the control settings in the game. You can rebind your keys to whatver.
+
+*GAMEPAD SUPPORT
+  If you want gamepad support, use Steam's built-in "Steam Input". I already made a community control setting, it's under Community Layouts and is called "Operation Tungsten GamePad Controls v3". You can use my control settings or you can create your own control scheme.
+
+--
+
 ## The campaign
 
 Four missions, unlocked in order. Each has its own briefing, objectives
