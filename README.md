@@ -11,7 +11,8 @@ every texture and most sounds are generated in code.
 ## ▶ Download & install
 
 1. Go to the **[latest release](https://github.com/DoubtfulFox/operation-tungsten/releases/latest)**.
-2. Download **`OperationTungsten-Setup-0.1.0.exe`**.
+2. Download the **`OperationTungsten-Setup` installer (`.exe`)** listed under
+   **Assets**.
 3. Run it. Windows SmartScreen may warn because the installer is unsigned —
    click **More info → Run anyway**.
 4. Launch **Operation Tungsten** from the Start menu or desktop shortcut.
