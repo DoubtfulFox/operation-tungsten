@@ -47,24 +47,6 @@ objectives are mandatory.
 contacts alive) feed the debrief rating: Agent → Secret Agent → 00 Agent.
 Higher difficulties promote some bonuses into required objectives.
 
-## Controls
-
-| Input | Action |
-|---|---|
-| WASD + mouse | Move / look |
-| Left / right mouse | Fire / aim |
-| R | Reload |
-| Interact | Doors, grates, locks, Dr. Volkov |
-| Crouch | Get through the vents and stay quiet |
-| Vault | Hop low cover |
-| Sneak | Quiet movement (toggle) |
-| Weapon wheel | Hold to open the radial wheel; mouse-wheel to quick-cycle |
-| Weapon function | Suppressor / mine mode / akimbo, depending on weapon |
-| Watch | Objectives, gear, controls, options, abort |
-
-Every control is **fully rebindable** to any key or mouse button — open
-the **CONTROLS** panel on the main menu or the watch's CONTROLS tab,
-click a binding, and press the input you want. Bindings persist locally.
 
 ## How the stealth works
 
